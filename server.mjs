@@ -1,13 +1,43 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
-import { initDb } from './lib/db.mjs';
+import { initDb, getDb } from './lib/db.mjs';
 import { handleRequest } from './lib/routes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.COREAD_PORT || '3000');
 const DB_PATH = process.env.COREAD_DB || path.join(process.cwd(), 'data', 'coread.db');
+
+// Optional comment notifier: run an arbitrary command whenever someone comments.
+// COREAD_NOTIFY_CMD  — shell command to execute (comment details passed via env vars)
+// COREAD_NOTIFY_FROM — only fire for this author (default 'human'; '*' = everyone)
+// Env vars available to the command:
+//   COREAD_BOOK_ID, COREAD_BOOK_TITLE, COREAD_FROM, COREAD_COMMENT
+const NOTIFY_CMD = process.env.COREAD_NOTIFY_CMD || '';
+const NOTIFY_FROM = process.env.COREAD_NOTIFY_FROM || 'human';
+
+function notifyComment({ book_id, from_who, content }) {
+  if (!NOTIFY_CMD) return;
+  if (NOTIFY_FROM !== '*' && from_who !== NOTIFY_FROM) return;
+  let title = `book#${book_id}`;
+  try {
+    const db = getDb(true);
+    title = db.prepare('SELECT title FROM books WHERE id = ?').get(book_id)?.title || title;
+    db.close();
+  } catch {}
+  execFile('/bin/sh', ['-c', NOTIFY_CMD], {
+    timeout: 15000,
+    env: {
+      ...process.env,
+      COREAD_BOOK_ID: String(book_id),
+      COREAD_BOOK_TITLE: title,
+      COREAD_FROM: from_who,
+      COREAD_COMMENT: content || '',
+    },
+  }, (err) => { if (err) console.error('notify cmd error:', err.message); });
+}
 
 initDb(DB_PATH);
 
@@ -18,7 +48,7 @@ const MIME = {
 };
 
 const server = http.createServer(async (req, res) => {
-  const handled = await handleRequest(req, res, { port: PORT });
+  const handled = await handleRequest(req, res, { port: PORT, onComment: notifyComment });
   if (handled) return;
 
   // Serve static files from public/

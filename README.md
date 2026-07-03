@@ -84,6 +84,39 @@ Streamable HTTP端点：`http://你的服务器:3001/mcp`
 | `COREAD_PORT` | `3000` | Web服务器端口 |
 | `COREAD_MCP_PORT` | `3001` | MCP SSE/HTTP服务器端口 |
 | `COREAD_DB` | `./data/coread.db` | 数据库路径 |
+| `COREAD_NOTIFY_CMD` | 空（关闭） | 有人评论时执行的shell命令，见下方「评论通知」 |
+| `COREAD_NOTIFY_FROM` | `human` | 触发通知的评论者名字，`*` 表示所有人 |
+
+## 评论通知（把批注实时推给你的AI）
+
+人类在共读室划句子写批注时，AI那边默认是不知道的（MCP是拉模式，AI要主动翻书才看得到）。设置 `COREAD_NOTIFY_CMD` 后，每条新评论都会触发你配置的命令，评论内容通过环境变量传入：
+
+| 环境变量 | 内容 |
+|----------|------|
+| `COREAD_BOOK_ID` | 书的ID |
+| `COREAD_BOOK_TITLE` | 书名 |
+| `COREAD_FROM` | 评论者 |
+| `COREAD_COMMENT` | 评论内容 |
+
+命令是任意的，所以通知去哪都行——两个现成示例在 `examples/`：
+
+**tmux注入**（AI跑在tmux里的Claude Code等agent，评论直接变成一条发给AI的消息）：
+
+```bash
+COREAD_NOTIFY_CMD="./examples/notify-tmux.sh" \
+COREAD_TMUX_SESSION="main" \
+node server.mjs
+```
+
+**webhook**（POST JSON到任意HTTP端点，接bot桥、ntfy、Slack/Discord适配器都行）：
+
+```bash
+COREAD_NOTIFY_CMD="./examples/notify-webhook.sh" \
+COREAD_WEBHOOK_URL="https://example.com/hook" \
+node server.mjs
+```
+
+默认只有 `human` 的评论触发（AI自己批注不会给自己发通知）；自定义过名字的把 `COREAD_NOTIFY_FROM` 设成对应名字即可。
 
 ## 开发
 
@@ -157,6 +190,20 @@ npm run mcp:sse   # Starts SSE/HTTP MCP server on port 3001
 - Streamable HTTP endpoint: `http://your-server:3001/mcp`
 
 Works with any MCP-compatible client — not limited to Claude. Three transport modes: stdio, SSE, Streamable HTTP.
+
+### Comment Notifications (push human comments to your AI)
+
+By default the AI only sees comments when it opens the book (MCP is pull-based). Set `COREAD_NOTIFY_CMD` to run any shell command whenever someone comments — details arrive via env vars (`COREAD_BOOK_ID`, `COREAD_BOOK_TITLE`, `COREAD_FROM`, `COREAD_COMMENT`). Two ready-made examples in `examples/`:
+
+```bash
+# Inject into a tmux session running your AI agent (e.g. Claude Code):
+COREAD_NOTIFY_CMD="./examples/notify-tmux.sh" COREAD_TMUX_SESSION="main" node server.mjs
+
+# Or POST to any webhook:
+COREAD_NOTIFY_CMD="./examples/notify-webhook.sh" COREAD_WEBHOOK_URL="https://example.com/hook" node server.mjs
+```
+
+`COREAD_NOTIFY_FROM` filters who triggers it (default `human`, `*` for everyone).
 
 ## License
 
