@@ -11,8 +11,9 @@ async function request(path: string, opts?: RequestInit) {
 
 export const api = {
   fetchBooks: () => request('/v1/books'),
-  fetchBookDetail: (bookId: number, page = 1, perPage = 10) =>
-    request(`/v1/books/${bookId}?page=${page}&per_page=${perPage}`),
+  fetchBookDetail: (bookId: number, page = 1) =>
+    // 统一坐标制：服务端固定分页（BOOK_PER_PAGE），不再传 per_page
+    request(`/v1/books/${bookId}?page=${page}`),
   fetchBookSlice: (bookId: number, start = 0, count = 30) =>
     request(`/v1/books/${bookId}/slice?start=${start}&count=${count}`),
   addBookComment: (bookId: number, data: any) =>

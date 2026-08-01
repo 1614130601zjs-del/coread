@@ -1313,7 +1313,7 @@ const StudyApp: React.FC = () => {
                                 </div>
                             )}
                             <div style={{ fontSize: 13, color: '#444', lineHeight: 1.6 }}>{r.content}</div>
-                            <div style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>p{r.paragraph_idx} · 点开定位到原文</div>
+                            <div style={{ fontSize: 10, color: '#aaa', marginTop: 4 }}>{(() => { const pg = findPageForParaIdx(r.paragraph_idx, totalPages, r.sel_start_idx ?? 0); return pg >= 0 ? `p${pg + 1}` : `p${r.paragraph_idx}`; })()} · 点开定位到原文</div>
                         </div>
                     ))}
                 </div>
