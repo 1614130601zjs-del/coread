@@ -1,8 +1,11 @@
 const BASE = window.location.origin;
 
+// 共读室关门锁 owner key（task-1786030476040-meb33p）：与 app 端同 key，锁定期彤宝的 web 端照常放行
+const ROOM_OWNER_KEY = 'xk-room-owner-f47ac10b58d2e619a3c4';
+
 async function request(path: string, opts?: RequestInit) {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-owner-key': ROOM_OWNER_KEY },
     ...opts,
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -29,7 +32,7 @@ export const api = {
   fetchBookToc: (bookId: number) =>
     request(`/v1/books/${bookId}/toc`),
   exportBook: async (bookId: number, format = 'epub') => {
-    const res = await fetch(`${BASE}/v1/books/${bookId}/export?format=${format}`);
+    const res = await fetch(`${BASE}/v1/books/${bookId}/export?format=${format}`, { headers: { 'x-owner-key': ROOM_OWNER_KEY } });
     if (!res.ok) throw new Error('Export failed');
     return res.blob();
   },
