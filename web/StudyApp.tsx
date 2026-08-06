@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useRef, startTransition, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, startTransition, useLayoutEffect, useMemo } from 'react';
 import { api } from './api';
 
 function themeColors(h: number, s: number, l: number) {
@@ -86,6 +86,91 @@ const PARA_GAP = 18;
 const CHAPTER_GAP_TOP = 40;
 const CHAPTER_GAP_BOTTOM = 28;
 
+// 大书（对齐SullyOS共读室 v2.2.24）：不做窗口化——全局连续视觉分页。
+// 超阈值的书首开走渐进分页：分块测量（块间让出主线程不卡UI）+ 完成后写分页缓存，之后秒开。
+const PROGRESSIVE_MEASURE_THRESHOLD = 15000;
+const PARA_FETCH_CHUNK = 10000;
+const MEASURE_CHUNK = 1500;
+// 目录行高（窗口化渲染用，固定行高才能按滚动位置直接换算可视窗口）
+const TOC_ROW_H = 44;
+// 后手优化：缓存miss时先分当前位置±PROVISIONAL_WIN段立即可读，全书分页后台补全
+const PROVISIONAL_WIN = 2500;
+
+// 分页/段落缓存主存 IndexedDB：大书分页结果几百KB起，localStorage(5-10MB)写不下
+// 或被清理→每次重开都重分页。localStorage 只作 IDB 不可用时的后手兜底。
+const idbOpen = (): Promise<IDBDatabase | null> => new Promise((resolve) => {
+    try {
+        const req = indexedDB.open('study-reader-cache', 2);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('pagebreaks')) db.createObjectStore('pagebreaks');
+            if (!db.objectStoreNames.contains('paragraphs')) db.createObjectStore('paragraphs');
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+    } catch { resolve(null); }
+});
+const idbGet = (key: string): Promise<string | null> =>
+    idbOpen().then(db => new Promise<string | null>((resolve) => {
+        if (!db) return resolve(null);
+        try {
+            const req = db.transaction('pagebreaks', 'readonly').objectStore('pagebreaks').get(key);
+            req.onsuccess = () => resolve(typeof req.result === 'string' ? req.result : null);
+            req.onerror = () => resolve(null);
+        } catch { resolve(null); }
+    }));
+const idbSet = (key: string, value: string): Promise<boolean> =>
+    idbOpen().then(db => new Promise<boolean>((resolve) => {
+        if (!db) return resolve(false);
+        try {
+            const tx = db.transaction('pagebreaks', 'readwrite');
+            tx.objectStore('pagebreaks').put(value, key);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+            tx.onabort = () => resolve(false);
+        } catch { resolve(false); }
+    }));
+const idbDel = (key: string): Promise<void> =>
+    idbOpen().then(db => new Promise<void>((resolve) => {
+        if (!db) return resolve();
+        try {
+            const tx = db.transaction('pagebreaks', 'readwrite');
+            tx.objectStore('pagebreaks').delete(key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+        } catch { resolve(); }
+    }));
+const idbGetParas = (key: string): Promise<string | null> =>
+    idbOpen().then(db => new Promise<string | null>((resolve) => {
+        if (!db) return resolve(null);
+        try {
+            const req = db.transaction('paragraphs', 'readonly').objectStore('paragraphs').get(key);
+            req.onsuccess = () => resolve(typeof req.result === 'string' ? req.result : null);
+            req.onerror = () => resolve(null);
+        } catch { resolve(null); }
+    }));
+const idbSetParas = (key: string, value: string): Promise<boolean> =>
+    idbOpen().then(db => new Promise<boolean>((resolve) => {
+        if (!db) return resolve(false);
+        try {
+            const tx = db.transaction('paragraphs', 'readwrite');
+            tx.objectStore('paragraphs').put(value, key);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+            tx.onabort = () => resolve(false);
+        } catch { resolve(false); }
+    }));
+const idbDelParas = (key: string): Promise<void> =>
+    idbOpen().then(db => new Promise<void>((resolve) => {
+        if (!db) return resolve();
+        try {
+            const tx = db.transaction('paragraphs', 'readwrite');
+            tx.objectStore('paragraphs').delete(key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => resolve();
+        } catch { resolve(); }
+    }));
+
 function toast(msg: string) {
     const el = document.createElement('div');
     el.textContent = msg;
@@ -108,6 +193,8 @@ const StudyApp: React.FC = () => {
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [pageBreaks, setPageBreaks] = useState<PageBreak[]>([{ paraIndex: 0, offset: 0 }]);
+    // 大书首开渐进分页进度（0~1），非 null 时 loading 显示百分比
+    const [paginateProgress, setPaginateProgress] = useState<number | null>(null);
     const [pageFragments, setPageFragments] = useState<PageFragment[]>([]);
     const [readingLoading, setReadingLoading] = useState(false);
     const contentRef = useRef<HTMLDivElement>(null);
@@ -118,6 +205,8 @@ const StudyApp: React.FC = () => {
     const [readerSize, setReaderSize] = useState({ width: 0, height: 0 });
     const savedParaIdxRef = useRef<number | null>(null);
     const currentParaIdxRef = useRef<number | null>(null);
+    // 后手优化：临时页表覆盖的段落区间（非null=全书分页仍在后台补全，窗外跳转先拦住）
+    const provisionalRangeRef = useRef<{ from: number; to: number } | null>(null);
 
     const [commentingIdx, setCommentingIdx] = useState<number | null>(null);
     const [commentText, setCommentText] = useState('');
@@ -132,6 +221,10 @@ const StudyApp: React.FC = () => {
 
     const [showToc, setShowToc] = useState(false);
     const [tocChapters, setTocChapters] = useState<{ idx: number; page: number; title: string }[]>([]);
+    const tocListRef = useRef<HTMLDivElement>(null);
+    // 目录窗口化：滚动位置与视口高（只渲染可视区±缓冲，几千章不全量挂DOM）
+    const [tocScrollTop, setTocScrollTop] = useState(0);
+    const [tocViewH, setTocViewH] = useState(0);
     const commentsRef = useRef<Comment[]>([]);
     const allCommentsRef = useRef<Comment[]>([]);
     const suppressPageJumpRef = useRef(false);
@@ -247,12 +340,25 @@ const StudyApp: React.FC = () => {
         if (paraIndex < 0) return -1;
 
         const lastPage = Math.min(maxPages, pageBreaks.length) - 1;
-        for (let i = lastPage; i >= 0; i--) {
-            const br = pageBreaks[i];
-            if (br.paraIndex < paraIndex) return Math.max(0, i);
-            if (br.paraIndex === paraIndex && br.offset <= targetOffset) return Math.max(0, i);
+        // 二分：breaks 按 (paraIndex, offset) 单调递增；大书目录几千章逐个换算页码，线性扫会卡
+        let lo = 0, hi = lastPage, ans = 0;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            const br = pageBreaks[mid];
+            if (br.paraIndex < paraIndex || (br.paraIndex === paraIndex && br.offset <= targetOffset)) { ans = mid; lo = mid + 1; }
+            else hi = mid - 1;
         }
-        return 0;
+        return ans;
+    };
+
+    // 后台补全分页中：临时页表只覆盖当前位置附近，窗外目标等全书分页完成再跳
+    const canJumpToPara = (idx: number) => {
+        const pr = provisionalRangeRef.current;
+        if (!pr) return true;
+        const tpi = allParas.findIndex(p => Number(p.idx) >= Number(idx));
+        if (tpi >= pr.from && tpi < pr.to) return true;
+        toast('全书分页后台补全中，完成后再跳');
+        return false;
     };
 
     const resolveNoticeTarget = (notice: ReplyNotice, pool: Comment[]) => {
@@ -369,9 +475,10 @@ const StudyApp: React.FC = () => {
     const openBook = async (book: Book) => {
         setActiveBook(book); setMode('reading');
         setReadingLoading(true);
-        setPage(1); setTotalPages(1); setPageBreaks([{ paraIndex: 0, offset: 0 }]); setPageFragments([]);
+        setPage(1); setTotalPages(1); setPageBreaks([{ paraIndex: 0, offset: 0 }]); setPageFragments([]); setPaginateProgress(null);
         setParagraphs([]); setComments([]); setAllParas([]); setAllComments([]);
         currentParaIdxRef.current = null;
+        provisionalRangeRef.current = null;
         {
             const bookTitle = book.title?.replace(/\s*\(.*?\)\s*/g, '').trim();
             fetch('/v1/reading-wishlist').then(r => r.json()).then(res => {
@@ -385,26 +492,60 @@ const StudyApp: React.FC = () => {
             }).catch(() => {});
         }
         try {
-            const d = await api.fetchBookSlice(book.id, 0, 9999);
-            const isEpubJunk = (s: string) => /^(1UR057|Cover|封面|插图|导航|书名页|制作信息|Contents|[A-Z0-9]{3,10}(-\d+)?)$/.test(s.trim());
-            const allP: Paragraph[] = (d.paragraphs || []).filter((p: Paragraph) => !isEpubJunk(p.content));
-            // Hide TOC sections (目录 heading + consecutive chapter titles)
-            const tocRe = /^(#\s*)?目录$/;
-            const chRe = /^(第[\d一二三四五六七八九十百千万]+[章节回部篇]|序章|序$|终章|后记|尾声|附录|解说)/;
-            let tocZone = false;
-            const filtered = allP.filter(p => {
-                const t = p.content.trim();
-                if (tocRe.test(t)) { tocZone = true; return false; }
-                if (tocZone) { if (chRe.test(t) || t === '') return false; tocZone = false; }
-                return true;
-            });
-            setAllParas(filtered);
-            setAllComments(d.comments || []);
-            setComments(d.comments || []);
-            const savedIdx = book.current_page || 0;
-            // page will be set after measurement finds which page contains savedIdx
-            savedParaIdxRef.current = savedIdx;
-            setReadingLoading(false);
+            const totalParas = Math.max(1, book.total_paragraphs || 0);
+            const paraCacheKey = `paras-v1-${book.id}`;
+            const commentCacheKey = `comments-v1-${book.id}`;
+            let cacheHit = false;
+            // 段落内容也进 IndexedDB：二次打开跳过网络拉取（大书13万段逐块拉要约1-2分钟）
+            try {
+                const cached = await idbGetParas(paraCacheKey);
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    if (parsed.totalParas === totalParas && Array.isArray(parsed.paragraphs) && parsed.paragraphs.length > 0) {
+                        setAllParas(parsed.paragraphs);
+                        const cachedComments = await idbGetParas(commentCacheKey);
+                        const comments = cachedComments ? JSON.parse(cachedComments) : [];
+                        setAllComments(comments);
+                        setComments(comments);
+                        savedParaIdxRef.current = book.current_page || 0;
+                        cacheHit = true;
+                    }
+                }
+            } catch {}
+            if (!cacheHit) {
+                // 全书分块拉取：小书1块、大书多块（避免单次大响应内存峰值，也修掉9999段截断）；批注随块增量合并
+                const rawParas: Paragraph[] = [];
+                const fetchedComments: Comment[] = [];
+                const seenCommentIds = new Set<number>();
+                for (let start = 0; start < totalParas; start += PARA_FETCH_CHUNK) {
+                    const d = await api.fetchBookSlice(book.id, start, PARA_FETCH_CHUNK);
+                    rawParas.push(...(d.paragraphs || []));
+                    for (const cmt of (d.comments || []) as Comment[]) {
+                        if (!seenCommentIds.has(cmt.id)) { seenCommentIds.add(cmt.id); fetchedComments.push(cmt); }
+                    }
+                    if ((d.paragraphs || []).length < PARA_FETCH_CHUNK) break;
+                }
+                const isEpubJunk = (s: string) => /^(1UR057|Cover|封面|插图|导航|书名页|制作信息|Contents|[A-Z0-9]{3,10}(-\d+)?)$/.test(s.trim());
+                const allP: Paragraph[] = rawParas.filter((p: Paragraph) => !isEpubJunk(p.content));
+                // Hide TOC sections (目录 heading + consecutive chapter titles)
+                const tocRe = /^(#\s*)?目录$/;
+                const chRe = /^(第[\d一二三四五六七八九十百千万]+[章节回部篇]|序章|序$|终章|后记|尾声|附录|解说)/;
+                let tocZone = false;
+                const filtered = allP.filter(p => {
+                    const t = p.content.trim();
+                    if (tocRe.test(t)) { tocZone = true; return false; }
+                    if (tocZone) { if (chRe.test(t) || t === '') return false; tocZone = false; }
+                    return true;
+                });
+                setAllParas(filtered);
+                setAllComments(fetchedComments);
+                setComments(fetchedComments);
+                savedParaIdxRef.current = book.current_page || 0;
+                // 有内容时loading由分页effect跳页完成后关闭——这里提前关会先露出第1页再跳（闪烁）
+                if (filtered.length === 0) setReadingLoading(false);
+                idbSetParas(paraCacheKey, JSON.stringify({ paragraphs: filtered, totalParas })).catch(() => {});
+                idbSetParas(commentCacheKey, JSON.stringify(fetchedComments)).catch(() => {});
+            }
         } catch (e: any) { toast(`加载失败: ${e.message}`); setReadingLoading(false); }
         api.fetchBookToc(book.id).then(d => setTocChapters(d.chapters || [])).catch(() => {});
     };
@@ -454,7 +595,9 @@ const StudyApp: React.FC = () => {
 
     const readerContentWidth = Math.max(1, readerSize.width - READER_HORIZONTAL_PADDING);
 
-    const paginationCacheKey = activeBook ? `pagebreaks-${activeBook.id}-${readerContentWidth}-${readerSize.height}` : '';
+    // 同书只存一份分页缓存，value里带测量时的尺寸，读取时容差校验。
+    // 不能把精确像素拼进key：手机WebView每次打开视口差±几px，key永远miss，导致每次进书全书重新measure。
+    const paginationCacheKey = activeBook ? `pagebreaks-v2-${activeBook.id}` : '';
     const imgHeightCache = useRef<Map<string, number>>(new Map());
 
     const buildMeasureBlock = (para: Paragraph, sourceIdx: number, start: number, end: number) => {
@@ -499,7 +642,7 @@ const StudyApp: React.FC = () => {
             await new Promise<void>(r => requestAnimationFrame(() => r()));
             if (cancelled || !measureRef.current) return;
 
-            if (activeBook) {
+            if (activeBook && allParas.length <= PROGRESSIVE_MEASURE_THRESHOLD) {
                 const imgParas = allParas.filter(p => /^\[IMG:([^\]]+)\]$/.test(p.content));
                 const loadPromises = imgParas.map(p => {
                     const m = p.content.match(/^\[IMG:([^\]]+)\]$/);
@@ -526,14 +669,31 @@ const StudyApp: React.FC = () => {
             measurer.style.width = `${readerContentWidth}px`;
             const maxHeight = Math.max(100, readerSize.height - 8);
             setPageHeight(readerSize.height);
+            const progressive = allParas.length > PROGRESSIVE_MEASURE_THRESHOLD;
+            provisionalRangeRef.current = null;
 
-            // Try cache first
+            // 后手优化判定——缓存miss且锚点够靠后时，先快速分当前位置±PROVISIONAL_WIN段的临时页
+            // 立即可读，全书分页随后照常从0跑完后替换
+            const anchorIdx0 = savedParaIdxRef.current ?? currentParaIdxRef.current ?? allParas[0]?.idx ?? 0;
+            const anchorPi0 = allParas.findIndex(p => p.idx >= anchorIdx0);
+            const useProvisional = progressive && !suppressPageJumpRef.current && anchorPi0 > PROVISIONAL_WIN;
+
+            // Try cache first（IndexedDB 主存；localStorage 里的旧缓存读出后迁移进IDB）
             if (paginationCacheKey) {
                 try {
-                    const cached = localStorage.getItem(paginationCacheKey);
+                    let cached = await idbGet(paginationCacheKey);
+                    if (cancelled) return;
+                    if (!cached) {
+                        cached = localStorage.getItem(paginationCacheKey);
+                        if (cached) idbSet(paginationCacheKey, cached);
+                    }
                     if (cached) {
-                        const { breaks: cachedBreaks, paraCount } = JSON.parse(cached);
-                        if (paraCount === allParas.length && Array.isArray(cachedBreaks) && cachedBreaks.length > 0) {
+                        const { breaks: cachedBreaks, paraCount, width: cw, height: ch } = JSON.parse(cached);
+                        // 尺寸容差：宽±2px严格（影响断行）；高±80px宽松——高度只影响每页容量/页尾留白，
+                        // 大书重测要约1分钟，手机WebView每次打开视口抖几十px不该触发重分页
+                        const sizeOk = typeof cw === 'number' && typeof ch === 'number'
+                            && Math.abs(cw - readerContentWidth) <= 2 && Math.abs(ch - readerSize.height) <= 80;
+                        if (sizeOk && paraCount === allParas.length && Array.isArray(cachedBreaks) && cachedBreaks.length > 0) {
                             setPageBreaks(cachedBreaks);
                             setTotalPages(Math.max(1, cachedBreaks.length));
                             if (!suppressPageJumpRef.current) {
@@ -547,77 +707,228 @@ const StudyApp: React.FC = () => {
                             setReadingLoading(false);
                             return;
                         }
+                    } else if (progressive) {
+                        toast(useProvisional ? '无分页缓存，先打开当前位置，后台补全全书' : '无分页缓存，将完整分页一次');
                     }
                 } catch {}
             }
 
             const breaks: PageBreak[] = [{ paraIndex: 0, offset: 0 }];
-            let paraIndex = 0;
-            let offset = 0;
 
-            const fits = (node: HTMLElement) => {
-                measurer.appendChild(node);
-                const ok = measurer.scrollHeight <= maxHeight + 1;
-                measurer.removeChild(node);
-                return ok;
+            // 连续排版 → 每块一次 layout，之后几何读取走缓存（layout 干净时读 rect 零 reflow）。
+            // 旧算法逐段试塞，每段一次同步reflow，几千段=首开十几秒。
+            // 切点全部落在行边界，所以续段在下一页重排时断行不变，几何坐标保持连续。
+            // 大书（>PROGRESSIVE_MEASURE_THRESHOLD 段）分块挂载测量：块间让出主线程并更新进度，
+            // 避免十几万段一次性 append 的内存峰值与长时间卡死；跨块用锚点段对齐逻辑纵坐标。
+            const chapterTopGap = (i: number) =>
+                isChapterStart(allParas[i].content) && i > 0 ? CHAPTER_GAP_TOP : 0;
+
+            const measureRange = document.createRange();
+
+            let blocks: HTMLElement[] = [];
+            let blockRects: DOMRect[] = [];
+            let chunkBase = 0;    // 当前块首段的数组下标
+            let blockOffset = 0;  // 锚点段占位（1）或无（0）
+            let rectShift = 0;    // 逻辑纵坐标 = DOM rect 读数 + rectShift
+            let chunkEnd = 0;     // 当前块末段下标（不含）
+
+            const blockIdx = (i: number) => i - chunkBase + blockOffset;
+            const rectBottom = (i: number) => blockRects[blockIdx(i)].bottom + rectShift;
+            const rectTop = (i: number) => blockRects[blockIdx(i)].top + rectShift;
+
+            // 挂载 [from, from+MEASURE_CHUNK) 的测量块；anchorIdx=上一块末段（保留在容器顶做新旧坐标系对齐）
+            const mountChunk = (from: number, anchorIdx: number | null, anchorLogicalBottom: number | null) => {
+                measurer.innerHTML = '';
+                blocks = [];
+                if (anchorIdx != null && anchorIdx >= 0 && anchorIdx < from) {
+                    const t0 = stripHeading(allParas[anchorIdx].content);
+                    blocks.push(buildMeasureBlock(allParas[anchorIdx], anchorIdx, 0, t0.length));
+                }
+                blockOffset = blocks.length;
+                const to = Math.min(allParas.length, from + MEASURE_CHUNK);
+                for (let i = from; i < to; i++) {
+                    const t = stripHeading(allParas[i].content);
+                    blocks.push(buildMeasureBlock(allParas[i], i, 0, t.length));
+                }
+                for (const b of blocks) measurer.appendChild(b);
+                blockRects = blocks.map(b => b.getBoundingClientRect());
+                chunkBase = from;
+                if (anchorIdx != null && anchorLogicalBottom != null && blockRects.length > 0) {
+                    rectShift = anchorLogicalBottom - blockRects[0].bottom;
+                }
             };
 
-            while (paraIndex < allParas.length) {
-                measurer.innerHTML = '';
-                let progressed = false;
-                while (paraIndex < allParas.length) {
-                    const para = allParas[paraIndex];
-                    const text = stripHeading(para.content);
-                    if (offset === 0 && paraIndex > 0 && isChapterStart(para.content) && measurer.childElementCount > 0) break;
+            const innerTextNode = (i: number): Text | null => {
+                const inner = blocks[blockIdx(i)]?.firstElementChild;
+                const node = inner?.firstChild;
+                return node && node.nodeType === Node.TEXT_NODE ? (node as Text) : null;
+            };
 
-                    const full = buildMeasureBlock(para, paraIndex, offset, text.length);
-                    if (fits(full)) {
-                        measurer.appendChild(full);
-                        paraIndex++;
-                        offset = 0;
-                        progressed = true;
+            // 前o个字符的包络底（逻辑纵坐标，单调递增），layout干净时读rect零reflow
+            const bottomAt = (textNode: Text, o: number) => {
+                measureRange.setStart(textNode, 0);
+                measureRange.setEnd(textNode, Math.min(o, textNode.length));
+                return measureRange.getBoundingClientRect().bottom + rectShift;
+            };
+            // 排满到limitY的最大行尾offset；一行都放不下返回0
+            const lineCut = (i: number, limitY: number): number => {
+                const textNode = innerTextNode(i);
+                if (!textNode || textNode.length === 0) return 0;
+                const len = textNode.length;
+                if (bottomAt(textNode, len) <= limitY) return len;
+                let lo = 1, hi = len, best = 0;
+                while (lo <= hi) {
+                    const mid = (lo + hi) >> 1;
+                    if (bottomAt(textNode, mid) <= limitY) { best = mid; lo = mid + 1; }
+                    else hi = mid - 1;
+                }
+                return best;
+            };
+
+            // 段 i 不在已挂载块内时换块：保留 i-1 段做锚点，逻辑纵坐标无缝接续；大书块间让出主线程
+            const ensureChunk = async (i: number): Promise<boolean> => {
+                if (i >= allParas.length || i < chunkEnd) return true;
+                const anchorLogicalBottom = i > 0 ? rectBottom(i - 1) : 0;
+                if (progressive) {
+                    setPaginateProgress(Math.min(0.99, i / allParas.length));
+                    await new Promise<void>(r => setTimeout(r, 0));
+                    if (cancelled || !measureRef.current) return false;
+                }
+                mountChunk(i, i > 0 ? i - 1 : null, anchorLogicalBottom);
+                chunkEnd = i + blocks.length - blockOffset;
+                return true;
+            };
+
+            // 后手优化：临时页只按段界切（不做段中切分），与最终页表允许有出入，很快会被全书分页替换
+            let provisionalShown = false;
+            if (useProvisional) {
+                const wFrom = anchorPi0 - PROVISIONAL_WIN;
+                const wTo = Math.min(allParas.length, anchorPi0 + PROVISIONAL_WIN);
+                const wb: PageBreak[] = [{ paraIndex: wFrom, offset: 0 }];
+                let i = wFrom;
+                let wCursor = 0;
+                let wGuard = 0;
+                while (i < wTo && wGuard++ < 10000) {
+                    if (i >= chunkEnd) {
+                        mountChunk(i, i > wFrom ? i - 1 : null, i > wFrom ? rectBottom(i - 1) : 0);
+                        chunkEnd = i + blocks.length - blockOffset;
+                        if (i === wFrom) wCursor = rectTop(wFrom) - chapterTopGap(wFrom);
+                        await new Promise<void>(r => setTimeout(r, 0)); // 块间让出主线程
+                        if (cancelled || !measureRef.current) return;
                         continue;
                     }
-
-                    if (offset >= text.length) {
-                        paraIndex++;
-                        offset = 0;
-                        progressed = true;
-                        continue;
-                    }
-
-                    let lo = Math.max(offset + 1, offset);
-                    let hi = text.length;
-                    let best = offset;
-                    while (lo <= hi) {
-                        const mid = Math.floor((lo + hi) / 2);
-                        const part = buildMeasureBlock(para, paraIndex, offset, mid);
-                        if (fits(part)) { best = mid; lo = mid + 1; }
-                        else hi = mid - 1;
-                    }
-                    if (best === offset) best = Math.min(text.length, offset + 1);
-                    // widow control: 段刚开始(offset===0)且这页只塞得下 <4 字 且这页已有别的内容 → 推整段下一页
-                    if (offset === 0 && best > 0 && best < 4 && measurer.childElementCount > 0) {
+                    const limitY = wCursor + maxHeight + 1;
+                    let pageHasContent = false;
+                    while (i < chunkEnd && i < wTo) {
+                        if (i > wFrom && isChapterStart(allParas[i].content) && pageHasContent) break;
+                        if (rectBottom(i) <= limitY) { i++; pageHasContent = true; continue; }
+                        // 整段/图片放不下：空页硬放（防死循环），否则推下一页
+                        if (!pageHasContent) { i++; }
                         break;
                     }
-                    offset = best;
-                    progressed = true;
-                    break;
+                    if (i >= wTo || i >= chunkEnd) continue;
+                    if (wb[wb.length - 1].paraIndex === i) break; // 没推进，防死循环
+                    wb.push({ paraIndex: i, offset: 0 });
+                    wCursor = rectTop(i) - chapterTopGap(i);
                 }
-                if (paraIndex < allParas.length) {
-                    const nextBreak = { paraIndex, offset };
-                    const last = breaks[breaks.length - 1];
-                    if (last.paraIndex === nextBreak.paraIndex && last.offset === nextBreak.offset) break;
-                    breaks.push(nextBreak);
+                if (wb.length > 1) {
+                    provisionalShown = true;
+                    provisionalRangeRef.current = { from: wFrom, to: wTo };
+                    setPageBreaks(wb);
+                    setTotalPages(Math.max(1, wb.length));
+                    let tp = 0;
+                    for (let k = wb.length - 1; k >= 0; k--) { if (wb[k].paraIndex <= anchorPi0) { tp = k; break; } }
+                    setPage(tp + 1);
+                    savedParaIdxRef.current = null; // 锚点已用掉，全书分页完成时按实时阅读位置重映射
+                    setReadingLoading(false); // 立即可读；全书分页下面照常跑
                 }
-                if (!progressed) break;
             }
 
+            let pi = 0, off = 0;
+            mountChunk(0, null, null);
+            chunkEnd = blocks.length;
+            let cursorY = blocks.length ? rectTop(0) - chapterTopGap(0) : 0;
+            if (progressive) setPaginateProgress(0);
+            let guard = 0;
+            while (pi < allParas.length && guard++ < 100000) {
+                if (!(await ensureChunk(pi))) return;
+                const limitY = cursorY + maxHeight + 1; // +1对齐旧算法的subpixel容差
+                let pageHasContent = false;
+                while (pi < chunkEnd && pi < allParas.length) {
+                    const isImg = /^\[IMG:[^\]]+\]$/.test(allParas[pi].content);
+                    if (off === 0 && pi > 0 && isChapterStart(allParas[pi].content) && pageHasContent) break;
+                    if (rectBottom(pi) <= limitY) {
+                        pi++; off = 0; pageHasContent = true; continue;
+                    }
+                    if (isImg) {
+                        // 图片不可拆；单独成页也放不下就硬放（imgMaxH≤0.6页高，实际必放得下）
+                        if (!pageHasContent) { pi++; off = 0; pageHasContent = true; }
+                        break;
+                    }
+                    const cut = lineCut(pi, limitY);
+                    if (cut <= off) break; // 一行都进不来，整段推下页
+                    if (cut >= (innerTextNode(pi)?.length ?? 0)) { // 文本全放下了（块底差subpixel）
+                        pi++; off = 0; pageHasContent = true; continue;
+                    }
+                    // widow control: 段从头开始且只塞得下<4字且页内已有内容 → 整段推下页
+                    if (off === 0 && cut < 4 && pageHasContent) break;
+                    off = cut;
+                    pageHasContent = true;
+                    break;
+                }
+                if (pi >= allParas.length) break;
+                if (pi >= chunkEnd) continue; // 块用完但页未填满：换块（ensureChunk）后继续填当前页
+                const last = breaks[breaks.length - 1];
+                if (last.paraIndex === pi && last.offset === off) break; // 没推进，防死循环
+                breaks.push({ paraIndex: pi, offset: off });
+                if (off > 0) {
+                    // 段中切点：下一页顶=切点字符所在行的top
+                    const textNode = innerTextNode(pi)!;
+                    measureRange.setStart(textNode, Math.min(off, textNode.length));
+                    measureRange.setEnd(textNode, Math.min(off + 1, textNode.length));
+                    cursorY = measureRange.getBoundingClientRect().top + rectShift;
+                } else {
+                    cursorY = rectTop(pi) - chapterTopGap(pi);
+                }
+            }
+            measurer.innerHTML = ''; // 测量节点用完即清
+
             if (cancelled) return;
+            provisionalRangeRef.current = null; // 最终页表替换临时页表，解除窗外跳转拦截
             setPageBreaks(breaks);
             setTotalPages(Math.max(1, breaks.length));
             if (paginationCacheKey) {
-                try { localStorage.setItem(paginationCacheKey, JSON.stringify({ breaks, paraCount: allParas.length })); } catch {}
+                const payload = JSON.stringify({
+                    breaks, paraCount: allParas.length,
+                    width: readerContentWidth, height: readerSize.height,
+                });
+                // 清掉旧版精确像素key（pagebreaks-id-w-h），防localStorage堆积
+                try {
+                    for (let i = localStorage.length - 1; i >= 0; i--) {
+                        const k = localStorage.key(i);
+                        if (k && k.startsWith('pagebreaks-') && !k.startsWith('pagebreaks-v2-')) localStorage.removeItem(k);
+                    }
+                } catch {}
+                // 主存 IndexedDB（配额足够，大书几百KB没问题）；写成功后清掉 localStorage 旧副本释放配额
+                const idbOk = await idbSet(paginationCacheKey, payload);
+                if (cancelled) return;
+                if (idbOk) {
+                    try { localStorage.removeItem(paginationCacheKey); } catch {}
+                } else {
+                    // 后手：IDB 不可用（隐私模式/老WebView）退回 localStorage；
+                    // 配额满（大书缓存约几百KB，多本累计可能超限）则清掉其它书的分页缓存重试一次
+                    try {
+                        localStorage.setItem(paginationCacheKey, payload);
+                    } catch {
+                        try {
+                            for (let i = localStorage.length - 1; i >= 0; i--) {
+                                const k = localStorage.key(i);
+                                if (k && k.startsWith('pagebreaks-v2-') && k !== paginationCacheKey) localStorage.removeItem(k);
+                            }
+                            localStorage.setItem(paginationCacheKey, payload);
+                        } catch {}
+                    }
+                }
             }
             if (!suppressPageJumpRef.current) {
                 const anchorIdx = savedParaIdxRef.current ?? currentParaIdxRef.current ?? allParas[0]?.idx ?? 0;
@@ -630,7 +941,9 @@ const StudyApp: React.FC = () => {
                 setPage(Math.max(1, Math.min(breaks.length, targetPage + 1)));
             }
             savedParaIdxRef.current = null;
+            setPaginateProgress(null);
             setReadingLoading(false);
+            if (provisionalShown) toast('全书分页已完成');
         };
         run();
         return () => { cancelled = true; };
@@ -748,6 +1061,11 @@ const StudyApp: React.FC = () => {
     const handleDeleteBook = async (bookId: number) => {
         try {
             await api.deleteBook(bookId);
+            // 删书连缓存一起清（分页+段落+批注）
+            try { localStorage.removeItem(`pagebreaks-v2-${bookId}`); } catch {}
+            idbDel(`pagebreaks-v2-${bookId}`);
+            idbDelParas(`paras-v1-${bookId}`);
+            idbDelParas(`comments-v1-${bookId}`);
             setConfirmDelete(null); loadBooks();
             toast('已删除');
         } catch (e: any) { toast(`删除失败: ${e.message}`); }
@@ -755,11 +1073,37 @@ const StudyApp: React.FC = () => {
 
     const jumpToChapter = (chapter: { idx: number; page: number; title: string }) => {
         if (!activeBook) return;
-        setShowToc(false); setActiveComments([]); setCommentingIdx(null); setSelRange(null); setFloatingBar(null);
         const targetIdx = chapter.idx ?? chapter.page;
+        if (!canJumpToPara(targetIdx)) return;
+        setShowToc(false); setActiveComments([]); setCommentingIdx(null); setSelRange(null); setFloatingBar(null);
         const targetPage = findPageForParaIdx(targetIdx);
         if (targetPage >= 0) setPage(targetPage + 1);
     };
+
+    // 当前阅读位置所在章：最后一个起始页不超过当前页的章（目录要能定位当前章，不用从头划）
+    const currentChapterIdx = useMemo(() => {
+        let cur = -1;
+        for (let i = 0; i < tocChapters.length; i++) {
+            const ch = tocChapters[i];
+            const pg = findPageForParaIdx(ch.idx ?? ch.page);
+            if ((pg >= 0 ? pg + 1 : ch.page) <= page) cur = i;
+            else break;
+        }
+        return cur;
+    }, [tocChapters, page, pageBreaks, allParas]);
+
+    // 打开目录时把当前章滚动到列表中央（窗口化后按钮按需渲染，不能scrollIntoView，直接算scrollTop）
+    useEffect(() => {
+        if (!showToc) return;
+        const el = tocListRef.current;
+        if (!el) return;
+        setTocViewH(el.clientHeight);
+        setTocScrollTop(el.scrollTop);
+        if (currentChapterIdx >= 0) {
+            const headerH = (el.firstElementChild as HTMLElement | null)?.offsetHeight ?? 0;
+            el.scrollTop = Math.max(0, headerH + currentChapterIdx * TOC_ROW_H - el.clientHeight / 2);
+        }
+    }, [showToc, currentChapterIdx]);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -1092,7 +1436,17 @@ const StudyApp: React.FC = () => {
                     /* Reading Mode — immersive, no card border */
                     <>
                         {readingLoading ? (
-                            <div style={{ textAlign: 'center', padding: '40px 0', color: '#bbb', fontSize: 14 }}>加载中...</div>
+                            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#bbb', fontSize: 14 }}>
+                                {paginateProgress != null ? (
+                                    <>
+                                        <div style={{ marginBottom: 12 }}>大书首次打开需要分页一次，之后秒开</div>
+                                        <div style={{ width: 180, height: 4, borderRadius: 2, background: `${c.primary}18`, margin: '0 auto 8px', overflow: 'hidden' }}>
+                                            <div style={{ height: '100%', borderRadius: 2, width: `${Math.round(paginateProgress * 100)}%`, background: c.primary, transition: 'width 0.2s ease' }} />
+                                        </div>
+                                        <div style={{ fontSize: 12, color: '#ccc' }}>{Math.round(paginateProgress * 100)}%</div>
+                                    </>
+                                ) : '加载中...'}
+                            </div>
                         ) : allParas.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: '40px 0', color: '#bbb', fontSize: 14 }}>这一页没有内容</div>
                         ) : (
@@ -1460,22 +1814,39 @@ const StudyApp: React.FC = () => {
             {showToc && (
                 <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(4px)', zIndex: 30, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 80 }}
                     onClick={() => setShowToc(false)}>
-                    <div onClick={(e) => e.stopPropagation()} style={{
+                    <div ref={tocListRef} onClick={(e) => e.stopPropagation()} onScroll={(e) => setTocScrollTop((e.target as HTMLDivElement).scrollTop)} style={{
                         background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(20px)', borderRadius: 20,
-                        padding: '16px 0', width: 'calc(100% - 40px)', maxWidth: 360, maxHeight: '60vh', overflow: 'auto',
+                        padding: '0', width: 'calc(100% - 40px)', maxWidth: 360, maxHeight: '60vh', overflow: 'auto',
                         border: `1px solid ${c.primaryBorder}`, boxShadow: '0 12px 40px rgba(0,0,0,0.1)',
                     }} className="no-scrollbar">
-                        <div style={{ fontSize: 14, fontWeight: 700, color: c.primaryDark, padding: '0 20px 12px', borderBottom: `1px solid ${c.primaryBorder}` }}>目录</div>
-                        {tocChapters.map((ch, i) => (
-                            <button key={i} onClick={() => jumpToChapter(ch)} style={{
-                                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                padding: '12px 20px', background: ch.page === page ? c.primaryBg : 'transparent',
-                                border: 'none', borderBottom: `1px solid ${c.primaryBorder}22`, cursor: 'pointer', textAlign: 'left',
-                            }}>
-                                <span style={{ fontSize: 13, color: ch.page === page ? c.primary : '#444', fontWeight: ch.page === page ? 600 : 400, flex: 1, lineHeight: 1.4 }}>{ch.title}</span>
-                                <span style={{ fontSize: 11, color: '#bbb', marginLeft: 8, flexShrink: 0 }}>p.{ch.page}</span>
-                            </button>
-                        ))}
+                        <div style={{ fontSize: 14, fontWeight: 700, color: c.primaryDark, padding: '16px 20px 12px', borderBottom: `1px solid ${c.primaryBorder}`, position: 'sticky', top: 0, background: 'rgba(255,255,255,0.97)', zIndex: 1 }}>目录</div>
+                        {(() => {
+                            // 窗口化渲染：几千章全量挂DOM滑动会卡/出空白，只渲染可视区±8行缓冲；
+                            // 固定行高 TOC_ROW_H，用 spacer 撑出总高，行绝对定位
+                            const viewH = tocViewH || 400;
+                            const winStart = Math.max(0, Math.floor(tocScrollTop / TOC_ROW_H) - 8);
+                            const winEnd = Math.min(tocChapters.length, Math.ceil((tocScrollTop + viewH) / TOC_ROW_H) + 8);
+                            const rows = [];
+                            for (let i = winStart; i < winEnd; i++) {
+                                const ch = tocChapters[i];
+                                // 目录页码与底部页码同源：按全书视觉分页表换算（后端章节分页坐标不同义）
+                                const pg = findPageForParaIdx(ch.idx ?? ch.page);
+                                const chPage = pg >= 0 ? pg + 1 : ch.page;
+                                const isCurrent = i === currentChapterIdx;
+                                rows.push(
+                                    <button key={i} onClick={() => jumpToChapter(ch)} style={{
+                                        position: 'absolute', top: i * TOC_ROW_H, left: 0, right: 0, height: TOC_ROW_H,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '0 20px', background: isCurrent ? c.primaryBg : 'transparent',
+                                        border: 'none', borderBottom: `1px solid ${c.primaryBorder}22`, cursor: 'pointer', textAlign: 'left',
+                                    }}>
+                                        <span style={{ fontSize: 13, color: isCurrent ? c.primary : '#444', fontWeight: isCurrent ? 600 : 400, flex: 1, lineHeight: 1.4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ch.title}</span>
+                                        <span style={{ fontSize: 11, color: '#bbb', marginLeft: 8, flexShrink: 0 }}>p.{chPage}</span>
+                                    </button>
+                                );
+                            }
+                            return <div style={{ position: 'relative', height: tocChapters.length * TOC_ROW_H }}>{rows}</div>;
+                        })()}
                     </div>
                 </div>
             )}
