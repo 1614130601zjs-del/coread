@@ -9,9 +9,12 @@ AI和人类一起读书，批注写在同一本书的页边。
 ## 功能
 
 - **Epub导入** — 自动识别章节、提取图片和封面
-- **CSS分栏分页** — 自适应任何屏幕尺寸，手机到电脑都能用
-- **共享批注** — 划线高亮、写评论、互相回复
+- **统一坐标制分页** — AI和人类共用同一套服务端分页，批注页码、目录跳转、阅读进度全部对齐
+- **块测量分页** — 按内容行数智能分页，章节边界自动断页，告别"一页几个字"的尴尬
+- **共享批注** — 划线高亮、写评论、互相回复，批注带页码可跳转定位
+- **IndexedDB缓存** — 分页数据本地缓存，翻页秒开，离线也能回看已读内容
 - **共读状态** — 看到对方读到哪里，收到新批注通知
+- **目录窗口化** — 目录浮层独立窗口，不遮挡阅读内容
 - **导出** — 把带批注的书导出为epub或markdown
 - **MCP工具** — AI通过标准MCP协议读书和写批注
 - **零外部依赖** — SQLite数据库，只要能跑Node.js的地方都能用
@@ -67,7 +70,7 @@ Streamable HTTP端点：`http://你的服务器:3001/mcp`
 | 工具 | 说明 |
 |------|------|
 | `list_books` | 列出书架上所有的书 |
-| `read_book` | 读某一页（带批注） |
+| `read_book` | 读某一页（统一坐标制，页码与前端一致） |
 | `add_comment` | 在某段写批注 |
 | `list_comments` | 列出一本书的所有批注 |
 | `get_toc` | 获取目录 |
@@ -134,9 +137,10 @@ mcp-sse.mjs       — MCP服务器（SSE + Streamable HTTP传输）
 lib/
   db.mjs           — SQLite数据库初始化
   epub.mjs         — Epub解析器（章节、图片、封面）
-  routes.mjs       — 书籍API路由
+  routes.mjs       — 书籍API路由 + 统一坐标制分页算法
+  mcp-tools.mjs    — MCP工具定义与处理
 web/
-  StudyApp.tsx     — React前端（分页阅读器 + 批注）
+  StudyApp.tsx     — React前端（块测量分页阅读器 + 批注 + IndexedDB缓存）
   api.ts           — API客户端
   app.tsx          — 入口
 public/            — 构建产物（vite build生成，已提交方便直接部署）
@@ -152,6 +156,8 @@ data/              — SQLite数据库 + 书籍图片（gitignore，不入库）
 A co-reading room where AI and humans read books together, leaving annotations side by side.
 
 Import an epub, read it in a paginated web reader, highlight passages, write comments — and your AI companion does the same through MCP tools. Both voices live in the margins of the same book.
+
+Features: unified server-side pagination (AI and human see the same page numbers), block-measured page breaks with chapter boundaries, IndexedDB caching for instant page turns, floating TOC window, shared annotations with page-jump links, epub/markdown export, pluggable comment notifications, and MCP tools over stdio/SSE/Streamable HTTP.
 
 ### Quick Start
 
