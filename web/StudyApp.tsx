@@ -246,6 +246,10 @@ const StudyApp: React.FC = () => {
     const [humanName, setHumanName] = useState(() => localStorage.getItem('coread-human-name') || 'human');
     const [aiName, setAiName] = useState(() => localStorage.getItem('coread-ai-name') || 'AI');
     const [showSettings, setShowSettings] = useState(false);
+    const [readerFontSize, setReaderFontSize] = useState(() => parseInt(localStorage.getItem('coread-font-size') || '14', 10));
+    const [showFontPanel, setShowFontPanel] = useState(false);
+    const [readerBrightness, setReaderBrightness] = useState(() => parseInt(localStorage.getItem('coread-brightness') || '100', 10));
+    const [readerNightMode, setReaderNightMode] = useState(() => localStorage.getItem('coread-night-mode') === 'true');
     const displayName = (from: string) => {
         const lower = from.toLowerCase();
         if (lower === 'human' || lower === humanName.toLowerCase()) return humanName;
@@ -597,7 +601,7 @@ const StudyApp: React.FC = () => {
 
     // 同书只存一份分页缓存，value里带测量时的尺寸，读取时容差校验。
     // 不能把精确像素拼进key：手机WebView每次打开视口差±几px，key永远miss，导致每次进书全书重新measure。
-    const paginationCacheKey = activeBook ? `pagebreaks-v2-${activeBook.id}` : '';
+    const paginationCacheKey = activeBook ? `pagebreaks-v2-${activeBook.id}-fs${readerFontSize}` : '';
     const imgHeightCache = useRef<Map<string, number>>(new Map());
 
     const buildMeasureBlock = (para: Paragraph, sourceIdx: number, start: number, end: number) => {
@@ -620,7 +624,7 @@ const StudyApp: React.FC = () => {
             const displayText = stripHeading(para.content).slice(start, end);
             const inner = document.createElement('div');
             inner.textContent = displayText || ' ';
-            inner.style.fontSize = `${chapterTitle ? 18 : para.content.trim().startsWith('# ') ? 17 : para.content.trim().startsWith('## ') ? 16 : 14}px`;
+            inner.style.fontSize = `${chapterTitle ? readerFontSize + 4 : para.content.trim().startsWith('# ') ? readerFontSize + 3 : para.content.trim().startsWith('## ') ? readerFontSize + 2 : readerFontSize}px`;
             inner.style.lineHeight = String(chapterTitle ? 2.2 : 1.85);
             inner.style.letterSpacing = `${chapterTitle ? 1 : 0.3}px`;
             inner.style.textIndent = heading || chapterTitle || start > 0 ? '0' : '1.5em';
@@ -947,7 +951,7 @@ const StudyApp: React.FC = () => {
         };
         run();
         return () => { cancelled = true; };
-    }, [mode, allParas, readerContentWidth, readerSize.height]);
+    }, [mode, allParas, readerContentWidth, readerSize.height, readerFontSize]);
 
     useEffect(() => {
         if (allParas.length === 0 || pageBreaks.length === 0) {
@@ -1277,7 +1281,7 @@ const StudyApp: React.FC = () => {
     };
 
     return (
-        <div className="xiaowo-study" style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', background: mode === 'reading' ? '#fafaf8' : `linear-gradient(145deg, rgba(255,252,254,0.98), ${c.grad1} 48%, rgba(239,247,248,0.96))`, position: 'relative', overflow: 'hidden' }}>
+        <div className="xiaowo-study" style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column', background: mode === 'reading' ? (readerNightMode ? '#1a1a1a' : '#fafaf8') : `linear-gradient(145deg, rgba(255,252,254,0.98), ${c.grad1} 48%, rgba(239,247,248,0.96))`, position: 'relative', overflow: 'hidden', filter: mode === 'reading' && readerBrightness < 100 ? `brightness(${readerBrightness / 100})` : undefined }}>
             <style>{`${STUDY_THEME_CSS}\n@keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }`}</style>
             {mode !== 'reading' && <>
                 <div style={{ position: 'absolute', top: -70, right: -40, width: 210, height: 210, borderRadius: '50%', background: `radial-gradient(circle, ${c.primaryLight}34, transparent 68%)`, pointerEvents: 'none', filter: 'blur(12px)', opacity: 0.7 }} />
@@ -1342,7 +1346,7 @@ const StudyApp: React.FC = () => {
             <div ref={contentRef} style={{
                 flex: 1, overflow: mode === 'reading' ? 'hidden' : 'auto', position: 'relative',
                 padding: mode === 'reading' ? '0' : '8px 20px 32px',
-                background: mode === 'reading' ? '#fafaf8' : 'transparent',
+                background: mode === 'reading' ? (readerNightMode ? '#1a1a1a' : '#fafaf8') : 'transparent',
             }} className="no-scrollbar study-scroll-container"
                 onClick={() => { if (mode === 'reading') toggleBar(); else if (activeComments.length) setActiveComments([]); }}
                 onTouchStart={mode === 'reading' ? (e) => {
@@ -1480,8 +1484,8 @@ const StudyApp: React.FC = () => {
                                     return (
                                         <div key={`${frag.idx}-${frag.startOffset}-${frag.endOffset}`} style={{ marginBottom: chapterTitle ? CHAPTER_GAP_BOTTOM : PARA_GAP, marginTop: chapterTitle && visibleIndex > 0 ? CHAPTER_GAP_TOP : 0 }}>
                                             <div data-para-idx={frag.idx} data-frag-start={frag.startOffset} data-frag-end={frag.endOffset} style={{
-                                                fontSize: chapterTitle ? 18 : original.content.trim().startsWith('# ') ? 17 : original.content.trim().startsWith('## ') ? 16 : 14,
-                                                lineHeight: chapterTitle ? 2.2 : 1.85, color: heading ? '#222' : '#333',
+                                                fontSize: chapterTitle ? readerFontSize + 4 : original.content.trim().startsWith('# ') ? readerFontSize + 3 : original.content.trim().startsWith('## ') ? readerFontSize + 2 : readerFontSize,
+                                                lineHeight: chapterTitle ? 2.2 : 1.85, color: readerNightMode ? (heading ? '#ddd' : '#ccc') : (heading ? '#222' : '#333'),
                                                 letterSpacing: chapterTitle ? 1 : 0.3, textIndent: (heading || chapterTitle || frag.isPartialStart) ? 0 : '1.5em',
                                                 fontWeight: chapterTitle ? 800 : heading ? 700 : 400, marginBottom: heading ? 4 : 0,
                                                 textAlign: chapterTitle ? 'center' : undefined,
@@ -1688,8 +1692,8 @@ const StudyApp: React.FC = () => {
                     {/* Sliding bottom bar */}
                     <div onClick={(e) => e.stopPropagation()} style={{
                         position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 15,
-                        background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(16px)',
-                        borderTop: '1px solid rgba(0,0,0,0.06)',
+                        background: readerNightMode ? 'rgba(30,30,30,0.95)' : 'rgba(255,255,255,0.95)', backdropFilter: 'blur(16px)',
+                        borderTop: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
                         padding: '10px 20px 22px',
                         transform: showBar ? 'translateY(0)' : 'translateY(100%)',
                         transition: 'transform 0.3s ease',
@@ -1712,6 +1716,11 @@ const StudyApp: React.FC = () => {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                             <span style={{ fontSize: 12, color: '#aaa' }}>{page} / {totalPages}</span>
                             <div style={{ position: 'absolute', right: 0, display: 'flex', gap: 16 }}>
+                                <button onClick={() => setShowFontPanel(v => !v)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                                    <span style={{ fontSize: 14, lineHeight: 1, color: showFontPanel ? c.primary : '#666', fontWeight: 700, fontFamily: 'serif' }}>Aa</span>
+                                    <span style={{ fontSize: 9, color: showFontPanel ? c.primary : '#aaa' }}>字体</span>
+                                </button>
                                 <button onClick={() => setShowToc(true)}
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                                     <span style={{ fontSize: 15, lineHeight: 1, color: '#666' }}>☰</span>
@@ -1723,6 +1732,52 @@ const StudyApp: React.FC = () => {
                                     <span style={{ fontSize: 9, color: '#aaa' }}>导出</span>
                                 </button>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Reading settings panel — brightness, font size, night mode */}
+                    <div onClick={(e) => e.stopPropagation()} style={{
+                        position: 'absolute', bottom: showBar ? 90 : -300, left: 16, right: 16, zIndex: 20,
+                        background: readerNightMode ? 'rgba(40,40,40,0.97)' : 'rgba(255,255,255,0.97)', backdropFilter: 'blur(20px)',
+                        borderRadius: 16, padding: '18px 20px',
+                        boxShadow: '0 -4px 24px rgba(0,0,0,0.1)', border: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+                        opacity: showFontPanel && showBar ? 1 : 0,
+                        transform: showFontPanel && showBar ? 'translateY(0)' : 'translateY(20px)',
+                        transition: 'opacity 0.25s ease, transform 0.25s ease, bottom 0.3s ease',
+                        pointerEvents: showFontPanel && showBar ? 'auto' : 'none',
+                    }}>
+                        {/* Brightness slider */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+                            <span style={{ fontSize: 14, color: readerNightMode ? '#888' : '#999' }}>☀</span>
+                            <input type="range" min={30} max={100} step={1} value={readerBrightness}
+                                onChange={e => { const v = parseInt(e.target.value, 10); setReaderBrightness(v); localStorage.setItem('coread-brightness', String(v)); }}
+                                style={{ flex: 1, accentColor: c.primary }} />
+                            <span style={{ fontSize: 18, color: readerNightMode ? '#888' : '#999' }}>☀</span>
+                        </div>
+                        {/* Font size buttons */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 18 }}>
+                            <button onClick={() => { const v = Math.max(12, readerFontSize - 1); setReaderFontSize(v); localStorage.setItem('coread-font-size', String(v)); }}
+                                style={{ flex: 1, padding: '10px 0', background: 'none', border: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'}`, borderRadius: '10px 0 0 10px', cursor: 'pointer', fontSize: 14, fontFamily: 'serif', color: readerNightMode ? '#ccc' : '#555', fontWeight: 600 }}>
+                                A<span style={{ fontSize: 10, verticalAlign: 'super', marginLeft: 1 }}>−</span>
+                            </button>
+                            <span style={{ padding: '10px 16px', fontSize: 13, color: c.primary, fontWeight: 700, borderTop: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'}`, borderBottom: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'}`, minWidth: 48, textAlign: 'center' }}>
+                                {readerFontSize}
+                            </span>
+                            <button onClick={() => { const v = Math.min(22, readerFontSize + 1); setReaderFontSize(v); localStorage.setItem('coread-font-size', String(v)); }}
+                                style={{ flex: 1, padding: '10px 0', background: 'none', border: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'}`, borderRadius: '0 10px 10px 0', cursor: 'pointer', fontSize: 18, fontFamily: 'serif', color: readerNightMode ? '#ccc' : '#555', fontWeight: 600 }}>
+                                A<span style={{ fontSize: 10, verticalAlign: 'super', marginLeft: 1 }}>+</span>
+                            </button>
+                        </div>
+                        {/* Day/Night mode toggle */}
+                        <div style={{ display: 'flex', gap: 10 }}>
+                            <button onClick={() => { setReaderNightMode(false); localStorage.setItem('coread-night-mode', 'false'); }}
+                                style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `2px solid ${!readerNightMode ? c.primary : (readerNightMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)')}`, background: !readerNightMode ? `${c.primary}15` : 'transparent', cursor: 'pointer', fontSize: 13, color: !readerNightMode ? c.primary : (readerNightMode ? '#999' : '#888'), fontWeight: 600 }}>
+                                ☀ 日间
+                            </button>
+                            <button onClick={() => { setReaderNightMode(true); localStorage.setItem('coread-night-mode', 'true'); }}
+                                style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `2px solid ${readerNightMode ? c.primary : 'rgba(0,0,0,0.08)'}`, background: readerNightMode ? `${c.primary}15` : 'transparent', cursor: 'pointer', fontSize: 13, color: readerNightMode ? c.primary : '#888', fontWeight: 600 }}>
+                                ☾ 夜间
+                            </button>
                         </div>
                     </div>
                 </>
@@ -1739,7 +1794,16 @@ const StudyApp: React.FC = () => {
                             style={{ width: '100%', padding: '10px 14px', borderRadius: 12, border: `1px solid ${c.primaryBorder}`, fontSize: 14, marginBottom: 16, outline: 'none' }} />
                         <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 6 }}>AI的名字 AI Name</label>
                         <input value={aiName} onChange={e => { setAiName(e.target.value); localStorage.setItem('coread-ai-name', e.target.value); }}
-                            style={{ width: '100%', padding: '10px 14px', borderRadius: 12, border: `1px solid ${c.primaryBorder}`, fontSize: 14, marginBottom: 20, outline: 'none' }} />
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: 12, border: `1px solid ${c.primaryBorder}`, fontSize: 14, marginBottom: 16, outline: 'none' }} />
+                        <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 6 }}>字体大小 Font Size</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                            <span style={{ fontSize: 12, color: '#aaa' }}>小</span>
+                            <input type="range" min={12} max={22} step={1} value={readerFontSize}
+                                onChange={e => { const v = parseInt(e.target.value, 10); setReaderFontSize(v); localStorage.setItem('coread-font-size', String(v)); }}
+                                style={{ flex: 1, accentColor: c.primary }} />
+                            <span style={{ fontSize: 12, color: '#aaa' }}>大</span>
+                            <span style={{ fontSize: 12, color: c.primary, fontWeight: 600, minWidth: 28, textAlign: 'center' }}>{readerFontSize}px</span>
+                        </div>
                         <button onClick={() => setShowSettings(false)} style={{ width: '100%', padding: '10px 0', borderRadius: 14, background: c.primary, border: 'none', color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>完成</button>
                     </div>
                 </div>
