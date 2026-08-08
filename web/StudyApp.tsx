@@ -1746,36 +1746,33 @@ const StudyApp: React.FC = () => {
                         transition: 'opacity 0.25s ease, transform 0.25s ease, bottom 0.3s ease',
                         pointerEvents: showFontPanel && showBar ? 'auto' : 'none',
                     }}>
-                        {/* Brightness slider */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-                            <span style={{ fontSize: 14, color: readerNightMode ? '#888' : '#999' }}>☀</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                            <span style={{ fontSize: 13, color: readerNightMode ? '#666' : '#bbb', lineHeight: 1 }}>☀</span>
                             <input type="range" min={30} max={100} step={1} value={readerBrightness}
                                 onChange={e => { const v = parseInt(e.target.value, 10); setReaderBrightness(v); localStorage.setItem('coread-brightness', String(v)); }}
-                                style={{ flex: 1, accentColor: c.primary }} />
-                            <span style={{ fontSize: 18, color: readerNightMode ? '#888' : '#999' }}>☀</span>
+                                style={{ flex: 1, accentColor: c.primary, height: 4 }} />
+                            <span style={{ fontSize: 16, color: readerNightMode ? '#888' : '#999', lineHeight: 1 }}>☀</span>
                         </div>
-                        {/* Font size buttons */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 18 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14, borderRadius: 8, overflow: 'hidden', border: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
                             <button onClick={() => { const v = Math.max(12, readerFontSize - 1); setReaderFontSize(v); localStorage.setItem('coread-font-size', String(v)); }}
-                                style={{ flex: 1, padding: '10px 0', background: 'none', border: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'}`, borderRadius: '10px 0 0 10px', cursor: 'pointer', fontSize: 14, fontFamily: 'serif', color: readerNightMode ? '#ccc' : '#555', fontWeight: 600 }}>
-                                A<span style={{ fontSize: 10, verticalAlign: 'super', marginLeft: 1 }}>−</span>
+                                style={{ flex: 1, padding: '8px 0', background: 'none', border: 'none', borderRight: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`, cursor: 'pointer', fontSize: 13, fontFamily: 'serif', color: readerNightMode ? '#aaa' : '#666' }}>
+                                A<span style={{ fontSize: 9, verticalAlign: 'super' }}>−</span>
                             </button>
-                            <span style={{ padding: '10px 16px', fontSize: 13, color: c.primary, fontWeight: 700, borderTop: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'}`, borderBottom: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'}`, minWidth: 48, textAlign: 'center' }}>
+                            <span style={{ padding: '8px 14px', fontSize: 12, color: c.primary, fontWeight: 600, textAlign: 'center', minWidth: 36, borderRight: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}` }}>
                                 {readerFontSize}
                             </span>
                             <button onClick={() => { const v = Math.min(22, readerFontSize + 1); setReaderFontSize(v); localStorage.setItem('coread-font-size', String(v)); }}
-                                style={{ flex: 1, padding: '10px 0', background: 'none', border: `1px solid ${readerNightMode ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)'}`, borderRadius: '0 10px 10px 0', cursor: 'pointer', fontSize: 18, fontFamily: 'serif', color: readerNightMode ? '#ccc' : '#555', fontWeight: 600 }}>
-                                A<span style={{ fontSize: 10, verticalAlign: 'super', marginLeft: 1 }}>+</span>
+                                style={{ flex: 1, padding: '8px 0', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, fontFamily: 'serif', color: readerNightMode ? '#aaa' : '#666' }}>
+                                A<span style={{ fontSize: 9, verticalAlign: 'super' }}>+</span>
                             </button>
                         </div>
-                        {/* Day/Night mode toggle */}
-                        <div style={{ display: 'flex', gap: 10 }}>
+                        <div style={{ display: 'flex', gap: 8 }}>
                             <button onClick={() => { setReaderNightMode(false); localStorage.setItem('coread-night-mode', 'false'); }}
-                                style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `2px solid ${!readerNightMode ? c.primary : (readerNightMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)')}`, background: !readerNightMode ? `${c.primary}15` : 'transparent', cursor: 'pointer', fontSize: 13, color: !readerNightMode ? c.primary : (readerNightMode ? '#999' : '#888'), fontWeight: 600 }}>
+                                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: `1.5px solid ${!readerNightMode ? c.primary : (readerNightMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)')}`, background: !readerNightMode ? `${c.primary}12` : 'transparent', cursor: 'pointer', fontSize: 12, color: !readerNightMode ? c.primary : (readerNightMode ? '#777' : '#999'), fontWeight: 500 }}>
                                 ☀ 日间
                             </button>
                             <button onClick={() => { setReaderNightMode(true); localStorage.setItem('coread-night-mode', 'true'); }}
-                                style={{ flex: 1, padding: '10px 0', borderRadius: 10, border: `2px solid ${readerNightMode ? c.primary : 'rgba(0,0,0,0.08)'}`, background: readerNightMode ? `${c.primary}15` : 'transparent', cursor: 'pointer', fontSize: 13, color: readerNightMode ? c.primary : '#888', fontWeight: 600 }}>
+                                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: `1.5px solid ${readerNightMode ? c.primary : 'rgba(0,0,0,0.06)'}`, background: readerNightMode ? `${c.primary}12` : 'transparent', cursor: 'pointer', fontSize: 12, color: readerNightMode ? c.primary : '#999', fontWeight: 500 }}>
                                 ☾ 夜间
                             </button>
                         </div>
