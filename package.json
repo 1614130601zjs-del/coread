@@ -23,6 +23,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
     "adm-zip": "^0.5.10",
     "archiver": "^7.0.0",
     "better-sqlite3": "^11.0.0"
@@ -35,5 +36,8 @@
     "react-dom": "^19.2.7",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
+  },
+  "allowScripts": {
+    "better-sqlite3@11.10.0": true
   }
 }

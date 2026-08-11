@@ -130,9 +130,10 @@ const server = http.createServer((req, res) => {
   res.end('Not found');
 });
 
-server.listen(PORT, () => {
-  console.log(`\n  📚 coread MCP server (SSE + Streamable HTTP)`);
-  console.log(`  🔗 SSE:              http://localhost:${PORT}/sse`);
-  console.log(`  🔗 Streamable HTTP:  http://localhost:${PORT}/mcp`);
-  console.log(`  📂 Database: ${DB_PATH}\n`);
+//  修改的地方：添加了 '0.0.0.0' 作为第二个参数，监听所有网络接口
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n   coread MCP server (SSE + Streamable HTTP)`);
+  console.log(`   SSE:              http://localhost:${PORT}/sse`);
+  console.log(`   Streamable HTTP:  http://localhost:${PORT}/mcp`);
+  console.log(`   Database: ${DB_PATH}\n`);
 });

@@ -10,7 +10,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/v1': 'http://localhost:3000',
+      '/v1': 'http://localhost:3001',
     },
+    historyApiFallback: true,   // ← 加上这一行
   },
 });
+

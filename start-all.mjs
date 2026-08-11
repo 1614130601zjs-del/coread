@@ -1,9 +1,29 @@
 import http from "http";
 import { spawn } from "child_process";
+import { initDB, uploadDB } from './db-sync.js';
 
-spawn("node", ["server.mjs"], { stdio: "inherit" });
-spawn("node", ["mcp-sse.mjs"], { stdio: "inherit" });
+// --- 启动前从 Supabase 下载最新数据库 ---
+await initDB();
 
+// --- 启动子进程 ---
+const web = spawn("node", ["server.mjs"], { stdio: "inherit" });
+const mcp = spawn("node", ["mcp-sse.mjs"], { stdio: "inherit" });
+
+// --- 定时备份（每 5 分钟） ---
+setInterval(async () => {
+  await uploadDB();
+}, 5 * 60 * 1000);
+
+// --- 进程退出时备份（防止重启丢失数据） ---
+const cleanup = async () => {
+  console.log(' 正在保存数据库到 Supabase...');
+  await uploadDB();
+  process.exit(0);
+};
+process.on('SIGINT', cleanup);
+process.on('SIGTERM', cleanup);
+
+// --- 代理转发（原样保留） ---
 const PORT = process.env.PORT || 3001;
 
 const server = http.createServer((clientReq, clientRes) => {
