@@ -1,7 +1,7 @@
 {
   "name": "coread",
   "version": "0.1.0",
-  "description": "共读室 — AI与人类的共读批注系统 / Co-reading room with shared annotations between AI and humans",
+  "description": "\u5171\u8bfb\u5ba4 \u2014 AI\u4e0e\u4eba\u7c7b\u7684\u5171\u8bfb\u6279\u6ce8\u7cfb\u7edf / Co-reading room with shared annotations between AI and humans",
   "type": "module",
   "main": "server.mjs",
   "bin": {
