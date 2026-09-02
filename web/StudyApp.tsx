@@ -543,14 +543,17 @@ const STUDY_THEME_CSS = `
     width: 100%; height: 100%;
     backface-visibility: hidden;
     overflow: hidden;
+    background: var(--reader-surface, #faf8f5);
 }
 .xiaowo-study .coread-page-flip-back {
     position: absolute; inset: 0;
     width: 100%; height: 100%;
     backface-visibility: hidden;
-    transform: rotateY(180deg);
-    background-image: linear-gradient(90deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.12) 50%, rgba(0,0,0,0.05) 100%);
-    box-shadow: inset 0 0 60px rgba(0,0,0,0.08);
+    transform: rotateY(180deg) scaleX(-1);
+    overflow: hidden;
+    background: var(--reader-surface, #faf8f5);
+    opacity: 0.9;
+    filter: brightness(0.92);
 }
 `;
 
@@ -5070,12 +5073,17 @@ const StudyApp: React.FC = () => {
                     if (!pageEl) return;
 
                     const pageRect = pageEl.getBoundingClientRect();
-                    const startY = Math.max(0, Math.min(pageRect.height, e.clientY - pageRect.top));
+                    const startX = e.clientX - pageRect.left;
+                    const startY = e.clientY - pageRect.top;
                     const startRatio = startY / Math.max(pageRect.height, 1);
                     const grabMode: 'center' | 'top' | 'bottom' =
                         startRatio < 0.28 ? 'top' :
                         startRatio > 0.72 ? 'bottom' :
                         'center';
+
+                    // 根据点击位置预判翻页方向
+                    const initialDirection = startX > pageRect.width / 2 ? 'forward' : 'backward';
+                    setPageTurnDirection(initialDirection);
 
                     pagePointerRef.current = {
                         pointerId: e.pointerId,
@@ -5104,7 +5112,6 @@ const StudyApp: React.FC = () => {
                         if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
                         if (Math.abs(dx) < Math.abs(dy) * 0.55) return;
                         gesture.direction = dx < 0 ? 'forward' : 'backward';
-                        setPageTurnDirection(gesture.direction);
                         reserveSelectionGesture(1400);
 
                         const pageEl = gesture.pageEl;
@@ -5112,22 +5119,22 @@ const StudyApp: React.FC = () => {
                         const parent = pageEl.parentElement;
                         if (!parent) return;
 
-                        // 创建独立的 3D 透视 wrapper，不影响其他元素
-                        const wrapper = document.createElement('div');
-                        wrapper.style.cssText = 'position:absolute;inset:0;perspective:1500px;transform-style:preserve-3d;z-index:10;pointer-events:none;';
-                        parent.appendChild(wrapper);
+                        // 父容器设置 3D 透视
+                        parent.style.perspective = '1500px';
+                        parent.style.transformStyle = 'preserve-3d';
 
-                        // 创建 flip 容器：包含 front（当前页 clone）和 back（纸张背面）
+                        // 创建翻转层，覆盖在当前页上方
                         const flip = document.createElement('div');
                         flip.className = 'coread-page-flip';
                         Object.assign(flip.style, {
                             position: 'absolute', inset: '0',
                             width: '100%', height: '100%',
+                            zIndex: '10', pointerEvents: 'none',
                             transformStyle: 'preserve-3d',
                             willChange: 'transform',
                         });
 
-                        // front：当前页完整 clone
+                        // front：当前页完整 clone（正面）
                         const front = pageEl.cloneNode(true) as HTMLElement;
                         front.className = 'coread-page-flip-front';
                         Object.assign(front.style, {
@@ -5138,27 +5145,29 @@ const StudyApp: React.FC = () => {
                             background: readerSurface,
                         });
 
-                        // back：纸张背面
-                        const back = document.createElement('div');
+                        // back：当前页镜像（背面，文字镜像 + 纸张纹理）
+                        const back = pageEl.cloneNode(true) as HTMLElement;
                         back.className = 'coread-page-flip-back';
                         Object.assign(back.style, {
                             position: 'absolute', inset: '0',
                             width: '100%', height: '100%',
                             backfaceVisibility: 'hidden',
-                            transform: 'rotateY(180deg)',
+                            transform: 'rotateY(180deg) scaleX(-1)',
+                            overflow: 'hidden',
                             background: readerSurface,
-                            backgroundImage: 'linear-gradient(90deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.12) 50%, rgba(0,0,0,0.05) 100%)',
-                            boxShadow: 'inset 0 0 60px rgba(0,0,0,0.08)',
+                            opacity: '0.85',
+                            filter: 'brightness(0.92)',
                         });
+                        // 给背面添加纸张纹理
+                        const backOverlay = document.createElement('div');
+                        backOverlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;background:linear-gradient(90deg,rgba(0,0,0,0.06) 0%,rgba(0,0,0,0.14) 50%,rgba(0,0,0,0.06) 100%);box-shadow:inset 0 0 60px rgba(0,0,0,0.1);';
+                        back.appendChild(backOverlay);
 
                         flip.appendChild(front);
                         flip.appendChild(back);
-                        wrapper.appendChild(flip);
+                        parent.appendChild(flip);
 
-                        // 隐藏原页面，避免重叠
-                        pageEl.style.visibility = 'hidden';
-
-                        gesture.flipContainer = wrapper;
+                        gesture.flipContainer = flip;
                     }
 
                     if (gesture.direction === 'forward' && dx >= 0) return;
@@ -5172,13 +5181,13 @@ const StudyApp: React.FC = () => {
                     const width = Math.max(rect?.width || window.innerWidth, 1);
                     const progress = Math.min(1, Math.max(0, Math.abs(dx) / width));
 
-                    // 旋转角度：forward 从右边缘向左翻（负角度），backward 从左边缘向右翻（正角度）
+                    // 旋转角度
                     const maxAngle = 175;
                     const angle = current.direction === 'forward'
                         ? -progress * maxAngle
                         : progress * maxAngle;
 
-                    // transform-origin：翻页轴在页面边缘
+                    // 旋转轴在页面边缘
                     const originX = current.direction === 'forward' ? '100%' : '0%';
                     const originY = current.grabMode === 'top' ? '15%' :
                                      current.grabMode === 'bottom' ? '85%' : '50%';
@@ -5186,7 +5195,7 @@ const StudyApp: React.FC = () => {
                     current.flipContainer.style.transformOrigin = `${originX} ${originY}`;
                     current.flipContainer.style.transform = `rotateY(${angle}deg)`;
 
-                    // 动态阴影：翻转过程中阴影加深
+                    // 动态阴影
                     const shadowIntensity = Math.sin(progress * Math.PI) * 0.4;
                     const shadowX = current.direction === 'forward'
                         ? -shadowIntensity * 30
@@ -5235,27 +5244,29 @@ const StudyApp: React.FC = () => {
                         return;
                     }
 
-                    // 如果 flip 还没创建（拖动极小），直接恢复
                     if (!flip) {
-                        pageEl.style.visibility = '';
                         try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
                         return;
                     }
 
                     if (!canTurn) {
-                        // 不能翻页（第一页往前或最后一页往后）：回弹
+                        // 边界回弹
                         flip.style.transition = 'transform 280ms cubic-bezier(0.22, 0.72, 0.2, 1), filter 280ms ease';
                         flip.style.transform = 'rotateY(0deg)';
                         flip.style.filter = 'none';
                         window.setTimeout(() => {
                             flip.remove();
-                            pageEl.style.visibility = '';
+                            const parent = pageEl.parentElement;
+                            if (parent) {
+                                parent.style.perspective = '';
+                                parent.style.transformStyle = '';
+                            }
                         }, 280);
                         try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
                         return;
                     }
 
-                    // 松手必翻：不回弹，直接完成翻页
+                    // 松手必翻：不回弹
                     const settleMs = Math.max(220, Math.min(readerPageTurnDuration, 380));
                     flip.style.transition = `transform ${settleMs}ms cubic-bezier(0.22, 0.72, 0.2, 1), filter ${settleMs}ms ease`;
 
@@ -5268,7 +5279,11 @@ const StudyApp: React.FC = () => {
 
                     window.setTimeout(() => {
                         flip.remove();
-                        pageEl.style.visibility = '';
+                        const parent = pageEl.parentElement;
+                        if (parent) {
+                            parent.style.perspective = '';
+                            parent.style.transformStyle = '';
+                        }
                         goPage(direction === 'forward' ? 1 : -1);
                     }, settleMs);
 
@@ -5297,11 +5312,13 @@ const StudyApp: React.FC = () => {
                         flip.remove();
                     }
                     if (pageEl) {
-                        pageEl.style.visibility = '';
+                        const parent = pageEl.parentElement;
+                        if (parent) {
+                            parent.style.perspective = '';
+                            parent.style.transformStyle = '';
+                        }
                     }
                 } : undefined}
-                        <button onClick={() => loadBooks()} style={{ background: 'none', border: `1px solid ${c.primaryBorder}`, borderRadius: 12, padding: '8px 20px', fontSize: 12, color: c.primary, cursor: 'pointer' }}>重试</button>
-                    </div>
                 ) : mode === 'shelf' ? (
                     <>
                         <div className="coread-shelf-tools">
