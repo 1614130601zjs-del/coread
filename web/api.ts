@@ -144,5 +144,7 @@ export const api = {
   },
   imageUrl: (bookId: number, filename: string) =>
     `${API_BASE}/v1/book-images/${bookId}/${filename}`,
+  deleteLibraryOption: (type: 'category' | 'tag', value: string) =>
+    request('/v1/library/options', { method: 'DELETE', body: JSON.stringify({ type, value }) }),
   wishlistUrl: () => `${API_BASE}/v1/reading-wishlist`,
 };

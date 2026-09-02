@@ -1155,7 +1155,7 @@ const StudyApp: React.FC = () => {
     const [selectedBooks, setSelectedBooks] = useState<Set<number>>(new Set());
     const batchFileRef = useRef<HTMLInputElement>(null);
     const [libraryCategories, setLibraryCategories] = useState<string[]>(['待看', '纯爱', '言情', '百合', '文学', '散文', '论文']);
-    const [libraryTags, setLibraryTags] = useState<string[]>(['森', '林', '木', '没看完']);
+    const [libraryTags, setLibraryTags] = useState<string[]>(['没看完']);
     const [shelfCategory, setShelfCategory] = useState('全部');
     const [shelfTag, setShelfTag] = useState('全部');
     const [shelfQuery, setShelfQuery] = useState('');
@@ -1167,6 +1167,7 @@ const StudyApp: React.FC = () => {
     const [editBookCategory, setEditBookCategory] = useState('待看');
     const [editBookTags, setEditBookTags] = useState<string[]>([]);
     const [editBookNote, setEditBookNote] = useState('');
+    const [deleteOptionValue, setDeleteOptionValue] = useState('');
     const [newOptionType, setNewOptionType] = useState<'category' | 'tag'>('tag');
     const [newOptionValue, setNewOptionValue] = useState('');
     const [showBar, setShowBar] = useState(false);
@@ -1870,6 +1871,20 @@ const StudyApp: React.FC = () => {
             toast(`已新增${newOptionType === 'category' ? '分类' : '标签'}`);
         } catch (e: any) {
             toast(`新增失败: ${e.message}`);
+        }
+    };
+
+    const deleteLibraryOption = async () => {
+        const value = deleteOptionValue;
+        if (!value) return;
+        try {
+            const result = await api.deleteLibraryOption(newOptionType, value);
+            if (newOptionType === 'category') setLibraryCategories(result.values || libraryCategories.filter(c => c !== value));
+            else setLibraryTags(result.values || libraryTags.filter(t => t !== value));
+            setDeleteOptionValue('');
+            toast(`已删除${newOptionType === 'category' ? '分类' : '标签'}`);
+        } catch (e: any) {
+            toast(`删除失败: ${e.message}`);
         }
     };
 
@@ -6305,6 +6320,14 @@ const StudyApp: React.FC = () => {
                                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addLibraryOption(); } }}
                                 style={{ flex: 1, minWidth: 0, padding: '7px 8px', border: `1px solid ${c.primaryBorder}`, borderRadius: 7, fontSize: 11 }} />
                             <button onClick={addLibraryOption} style={{ padding: '7px 10px', border: `1px solid ${c.primaryBorder}`, borderRadius: 7, background: '#fff', color: c.primary, cursor: 'pointer', fontSize: 11 }}>新增</button>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                            <select value={deleteOptionValue} onChange={e => setDeleteOptionValue(e.target.value)}
+                                style={{ flex: 1, minWidth: 0, padding: '7px 6px', border: `1px solid ${c.primaryBorder}`, borderRadius: 7, background: '#fff', color: '#777', fontSize: 11 }}>
+                                <option value="">选择要删除的{newOptionType === 'category' ? '分类' : '标签'}</option>
+                                {(newOptionType === 'category' ? libraryCategories : libraryTags).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                            <button onClick={deleteLibraryOption} style={{ padding: '7px 10px', border: `1px solid ${c.primaryBorder}`, borderRadius: 7, background: '#fff', color: '#c44', cursor: 'pointer', fontSize: 11 }}>删除</button>
                         </div>
 
                         <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 5 }}>备注</label>
