@@ -531,35 +531,22 @@ const STUDY_THEME_CSS = `
     will-change: transform, opacity;
 }
 /* Page Curl: 真实纸张卷曲翻页 */
-.xiaowo-study .coread-reader-page-curl-live {
+.xiaowo-study .coread-reader-page-flip-container {
     position: absolute; inset: 0; width: 100%; height: 100%;
-    z-index: 4; pointer-events: none; overflow: hidden;
-    box-sizing: border-box; background: var(--reader-surface, #faf8f5);
-    opacity: 1; display: block; transform: translate3d(0,0,0);
-    transform-style: preserve-3d; backface-visibility: hidden;
-    will-change: clip-path, transform, filter; contain: paint;
+    z-index: 4; pointer-events: none;
+    transform-style: preserve-3d; perspective: 1200px;
+    will-change: transform;
 }
-.xiaowo-study .coread-reader-page-curl-live .coread-reader-body {
-    background: var(--reader-surface, #faf8f5) !important;
-}
-.xiaowo-study .coread-page-curl-backface {
+.xiaowo-study .coread-reader-page-front {
     position: absolute; inset: 0; width: 100%; height: 100%;
-    pointer-events: none;
-    background: linear-gradient(90deg, rgba(0,0,0,0.06) 0%, rgba(255,255,255,0.35) 50%, rgba(0,0,0,0.04) 100%);
-    mix-blend-mode: multiply; opacity: 0; transition: opacity 0.15s ease; z-index: 5;
+    backface-visibility: hidden; overflow: hidden;
 }
-.xiaowo-study .coread-reader-page-curl-live[data-curl-active="true"] .coread-page-curl-backface {
-    opacity: 1;
-}
-.xiaowo-study .coread-page-crease {
-    position: absolute; top: 0; bottom: 0; width: 3px;
-    pointer-events: none; z-index: 6; opacity: 0;
-    background: linear-gradient(180deg, transparent, rgba(0,0,0,0.18) 40%, rgba(0,0,0,0.28) 50%, rgba(0,0,0,0.18) 60%, transparent);
-    box-shadow: 0 0 20px rgba(0,0,0,0.12); transform: translateZ(6px);
-    transition: opacity 0.1s ease;
-}
-.xiaowo-study .coread-reader-page-curl-live[data-curl-active="true"] .coread-page-crease {
-    opacity: 1;
+.xiaowo-study .coread-reader-page-back {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    backface-visibility: hidden;
+    transform: rotateY(180deg);
+    background-image: linear-gradient(90deg, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.10) 50%, rgba(0,0,0,0.04) 100%);
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.06);
 }
 `;
 
@@ -1725,7 +1712,7 @@ const StudyApp: React.FC = () => {
         startY: number;
         pageEl: HTMLElement | null;
         bodyEl: HTMLElement | null;
-        curlEl: HTMLElement | null;
+        flipContainer: HTMLElement | null;
         direction: 'forward' | 'backward' | null;
         // 根据按下位置选择翻页模型：
         // center = 整页掀起；top/bottom = 从对应角落揪起。
@@ -5079,29 +5066,6 @@ const StudyApp: React.FC = () => {
                     const bodyEl = pageEl?.querySelector('[data-page-content]') as HTMLElement | null;
                     if (!pageEl || !bodyEl) return;
 
-                    // 拖动纸张必须是“独立的一张纸”：把当前页复制成一个真正的同级图层。
-                    // 这样父页面的 clip-path 不会把被掀起的纸一起裁掉，也能保留原页文字/图片。
-                    const curlEl = pageEl.cloneNode(true) as HTMLElement;
-                    curlEl.className = 'coread-reader-page-curl-live';
-                    curlEl.removeAttribute('data-page-main-content');
-                    curlEl.querySelectorAll('[data-page-curl-sheet]').forEach((node) => node.remove());
-                    curlEl.setAttribute('data-page-curl-sheet', 'true');
-                    curlEl.setAttribute('data-curl-active', 'true');
-                    Object.assign(curlEl.style, {
-                        position: 'absolute', inset: '0', width: '100%', height: '100%',
-                        zIndex: '4', pointerEvents: 'none', overflow: 'hidden',
-                        background: readerSurface, opacity: '1', display: 'block',
-                        transform: 'translate3d(0,0,0)', transformStyle: 'preserve-3d',
-                        backfaceVisibility: 'hidden', willChange: 'clip-path, transform, filter',
-                    });
-                    const backface = document.createElement('div');
-                    backface.className = 'coread-page-curl-backface';
-                    curlEl.appendChild(backface);
-                    const crease = document.createElement('div');
-                    crease.className = 'coread-page-crease';
-                    curlEl.appendChild(crease);
-                    pageEl.parentElement?.appendChild(curlEl);
-
                     const pageRect = pageEl.getBoundingClientRect();
                     const startY = Math.max(0, Math.min(pageRect.height, e.clientY - pageRect.top));
                     const startRatio = startY / Math.max(pageRect.height, 1);
@@ -5110,24 +5074,13 @@ const StudyApp: React.FC = () => {
                         startRatio > 0.72 ? 'bottom' :
                         'center';
 
-                    pageEl.style.transition = 'none';
-                    pageEl.style.transform = 'translate3d(0,0,0)';
-
-                    bodyEl.style.transition = 'none';
-                    bodyEl.style.willChange = 'clip-path';
-                    pageEl.style.clipPath = 'inset(0 0 0 0)';
-
-                    curlEl.style.transition = 'none';
-                    curlEl.style.transformOrigin = '50% 50%';
-                    curlEl.style.clipPath = 'inset(0 0 0 0)';
-
                     pagePointerRef.current = {
                         pointerId: e.pointerId,
                         startX: e.clientX,
                         startY: e.clientY,
                         pageEl,
                         bodyEl,
-                        curlEl,
+                        flipContainer: null,
                         direction: null,
                         grabMode,
                         moved: false,
@@ -5138,8 +5091,7 @@ const StudyApp: React.FC = () => {
                         e.currentTarget.setPointerCapture(e.pointerId);
                     } catch {}
                     if (e.cancelable) e.preventDefault();
-                } : undefined}
-                onPointerMove={mode === 'reading' ? (e) => {
+                } : undefined}onPointerMove={mode === 'reading' ? (e) => {
                     const gesture = pagePointerRef.current;
                     if (!gesture || e.pointerId !== gesture.pointerId) return;
 
@@ -5152,147 +5104,82 @@ const StudyApp: React.FC = () => {
                         gesture.direction = dx < 0 ? 'forward' : 'backward';
                         setPageTurnDirection(gesture.direction);
                         reserveSelectionGesture(1400);
+
+                        // 首次确认拖动方向：创建 3D 翻转容器
+                        const pageEl = gesture.pageEl;
+                        if (!pageEl) return;
+
+                        const flipContainer = document.createElement('div');
+                        flipContainer.className = 'coread-reader-page-flip-container';
+                        Object.assign(flipContainer.style, {
+                            position: 'absolute', inset: '0', width: '100%', height: '100%',
+                            zIndex: '4', pointerEvents: 'none',
+                            transformStyle: 'preserve-3d', perspective: '1200px',
+                            willChange: 'transform',
+                        });
+
+                        const front = pageEl.cloneNode(true) as HTMLElement;
+                        front.className = 'coread-reader-page-front';
+                        Object.assign(front.style, {
+                            position: 'absolute', inset: '0', width: '100%', height: '100%',
+                            backfaceVisibility: 'hidden', overflow: 'hidden',
+                            background: readerSurface,
+                        });
+
+                        const back = document.createElement('div');
+                        back.className = 'coread-reader-page-back';
+                        Object.assign(back.style, {
+                            position: 'absolute', inset: '0', width: '100%', height: '100%',
+                            backfaceVisibility: 'hidden',
+                            transform: 'rotateY(180deg)',
+                            background: readerSurface,
+                            backgroundImage: 'linear-gradient(90deg, rgba(0,0,0,0.04) 0%, rgba(0,0,0,0.10) 50%, rgba(0,0,0,0.04) 100%)',
+                            boxShadow: 'inset 0 0 40px rgba(0,0,0,0.06)',
+                        });
+
+                        flipContainer.appendChild(front);
+                        flipContainer.appendChild(back);
+                        pageEl.parentElement?.appendChild(flipContainer);
+                        pageEl.style.opacity = '0';
+
+                        gesture.flipContainer = flipContainer;
                     }
 
                     if (gesture.direction === 'forward' && dx >= 0) return;
                     if (gesture.direction === 'backward' && dx <= 0) return;
 
                     gesture.moved = Math.abs(dx) > 3;
-                            const current = pagePointerRef.current;
-                            if (!current || !current.curlEl || !current.bodyEl) return;
+                    const current = pagePointerRef.current;
+                    if (!current || !current.flipContainer) return;
 
-                            const rect = current.pageEl?.getBoundingClientRect();
-                            const width = Math.max(rect?.width || window.innerWidth, 1);
-                            const height = Math.max(rect?.height || window.innerHeight, 1);
-                            const localX = Math.max(0, Math.min(width, e.clientX - (rect?.left || 0)));
-                            const localY = Math.max(0, Math.min(height, e.clientY - (rect?.top || 0)));
+                    const rect = current.pageEl?.getBoundingClientRect();
+                    const width = Math.max(rect?.width || window.innerWidth, 1);
+                    const progress = Math.min(1, Math.max(0, Math.abs(dx) / width));
 
-                            const progress = Math.min(1, Math.max(0, Math.abs(dx) / width));
-                            const px = Math.max(0, Math.min(width, localX));
-                            const py = Math.max(0, Math.min(height, localY));
-                            const pct = (v: number, total: number) =>
-                                `${Math.max(0, Math.min(100, (v / Math.max(total, 1)) * 100))}%`;
+                    const maxAngle = 160;
+                    const angle = current.direction === 'forward'
+                        ? -progress * maxAngle
+                        : progress * maxAngle;
 
-                            if (current.grabMode === 'center') {
-                                // 中间按下：整页模型。
-                                // 手指所在位置成为折痕，纸张主体仍在原位，
-                                // 被掀起的一侧是一整张不透明纸。
-                                const bow = Math.min(width * 0.15, 22 + progress * width * 0.10);
-                                const center = py / Math.max(height, 1);
-                                const curveAt = (ratio: number) => {
-                                    const d = (ratio - center) * 2;
-                                    return Math.sin(Math.max(-Math.PI / 2, Math.min(Math.PI / 2, d))) * bow;
-                                };
-                                const samples = [0, 0.14, 0.30, 0.50, 0.70, 0.86, 1];
-                                const foldPoints = samples.map((ratio) => ({
-                                    x: Math.max(0, Math.min(width,
-                                        current.direction === 'forward'
-                                            ? px + curveAt(ratio)
-                                            : px - curveAt(ratio)
-                                    )),
-                                    y: ratio * height,
-                                }));
+                    const originX = current.direction === 'forward' ? '100%' : '0%';
+                    const originY = current.grabMode === 'top' ? '0%' :
+                                     current.grabMode === 'bottom' ? '100%' : '50%';
 
-                                const fold = foldPoints.map(p => `${pct(p.x,width)} ${pct(p.y,height)}`).join(', ');
+                    current.flipContainer.style.transformOrigin = `${originX} ${originY}`;
+                    current.flipContainer.style.transform = `perspective(1200px) rotateY(${angle}deg)`;
 
-                                // forward: 当前纸留在左侧，右侧才是被掀起的纸；
-                                // backward: 当前纸留在右侧，左侧才是被掀起的纸。
-                                const bodyPoly = current.direction === 'forward'
-                                    ? `0% 0%, ${fold}, 0% 100%`
-                                    : `100% 0%, 100% 100%, ${fold}`;
+                    const shadowIntensity = Math.sin(progress * Math.PI) * 0.35;
+                    const shadowX = current.direction === 'forward' ? -shadowIntensity * 24 : shadowIntensity * 24;
+                    current.flipContainer.style.filter = `drop-shadow(${shadowX}px 4px ${shadowIntensity * 20 + 8}px rgba(40,30,20,${shadowIntensity + 0.1}))`;
 
-                                const curlPoly = current.direction === 'forward'
-                                    ? `${fold}, 100% 100%, 100% 0%`
-                                    : `${fold}, 0% 0%, 0% 100%`;
+                    const backEl = current.flipContainer.querySelector('.coread-reader-page-back') as HTMLElement | null;
+                    if (backEl) {
+                        const backOpacity = progress > 0.5 ? (progress - 0.5) * 2 : 0;
+                        backEl.style.opacity = String(Math.min(1, backOpacity));
+                    }
 
-                                current.pageEl.style.clipPath = `polygon(${bodyPoly})`;
-                                current.curlEl.style.opacity = '1';
-                                current.curlEl.style.inset = '0';
-                                current.curlEl.style.width = '100%';
-                                current.curlEl.style.height = '100%';
-                                current.curlEl.style.clipPath = `polygon(${curlPoly})`;
-                                current.curlEl.style.transformOrigin =
-                                    `${pct(px,width)} ${pct(py,height)}`;
-                                const bend = Math.min(52, 6 + progress * 46);
-                                const lift = Math.min(16, 2 + progress * 14);
-                                current.curlEl.style.transform =
-                                    `perspective(1500px) translate3d(0,0,${lift}px) rotateY(${current.direction === 'forward' ? -bend : bend}deg)`;
-                                current.curlEl.style.filter =
-                                    `drop-shadow(${current.direction === 'forward' ? '-8px' : '8px'} 5px 13px rgba(50,40,30,${0.16 + progress * 0.12}))`;
-                                const creaseEl = current.curlEl.querySelector('.coread-page-crease') as HTMLElement | null;
-                                if (creaseEl) {
-                                    creaseEl.style.left = `${(px / width) * 100}%`;
-                                    creaseEl.style.opacity = String(Math.min(1, progress * 2.5));
-                                }
-                            } else {
-                                // 靠近上/下边按下：角落模型。
-                                // 上半区抓上角，下半区抓下角；左右方向只决定是哪一侧的角。
-                                const cornerX = current.direction === 'forward' ? width : 0;
-                                const cornerY = current.grabMode === 'top' ? 0 : height;
-                                const dxCorner = px - cornerX;
-                                const dyCorner = py - cornerY;
-                                const cornerProgress = Math.min(
-                                    1,
-                                    Math.max(0, Math.abs(dxCorner) / width)
-                                );
-
-                                // 角落向手指移动，但留一点“纸张弧度”，避免变成硬三角。
-                                const bow = Math.min(100, 18 + cornerProgress * 110);
-                                const foldX = current.direction === 'forward'
-                                    ? Math.max(0, px - bow * (1 - cornerProgress * 0.22))
-                                    : Math.min(width, px + bow * (1 - cornerProgress * 0.22));
-                                const foldY = current.grabMode === 'top'
-                                    ? Math.min(height, Math.max(0, py + Math.abs(dyCorner) * 0.12))
-                                    : Math.max(0, Math.min(height, py - Math.abs(dyCorner) * 0.12));
-
-                                const fx = pct(foldX,width);
-                                const fy = pct(foldY,height);
-                                const pxPct = pct(px,width);
-                                const pyPct = pct(py,height);
-
-                                const bodyPoly = current.direction === 'forward'
-                                    ? current.grabMode === 'top'
-                                        ? `0% 100%, 100% 100%, 100% 0%, ${fx} ${fy}, 0% 0%`
-                                        : `0% 0%, 100% 0%, 100% 100%, ${fx} ${fy}, 0% 100%`
-                                    : current.grabMode === 'top'
-                                        ? `0% 100%, 100% 100%, 100% 0%, 0% 0%, ${fx} ${fy}`
-                                        : `0% 0%, 100% 0%, 0% 100%, ${fx} ${fy}, 100% 100%`;
-
-                                current.pageEl.style.clipPath = `polygon(${bodyPoly})`;
-
-                                const curlPoly = current.direction === 'forward'
-                                    ? current.grabMode === 'top'
-                                        ? `${pxPct} ${pyPct}, 100% 0%, 100% 100%, 0% 100%, ${fx} ${fy}`
-                                        : `${pxPct} ${pyPct}, 100% 100%, 0% 100%, 0% 0%, ${fx} ${fy}`
-                                    : current.grabMode === 'top'
-                                        ? `${pxPct} ${pyPct}, 0% 0%, 0% 100%, 100% 100%, ${fx} ${fy}`
-                                        : `${pxPct} ${pyPct}, 0% 100%, 0% 0%, 100% 0%, ${fx} ${fy}`;
-
-                                current.curlEl.style.opacity = String(Math.min(1, 0.94 + cornerProgress * 0.06));
-                                current.curlEl.style.inset = '0';
-                                current.curlEl.style.width = '100%';
-                                current.curlEl.style.height = '100%';
-                                current.curlEl.style.clipPath = `polygon(${curlPoly})`;
-                                current.curlEl.style.transformOrigin =
-                                    `${current.direction === 'forward' ? 100 : 0}% ${current.grabMode === 'top' ? 0 : 100}%`;
-
-                                const rotate = Math.min(46, 6 + cornerProgress * 40);
-                                const lift = Math.min(34, 7 + cornerProgress * 27);
-                                const rotateY = current.direction === 'forward' ? -rotate : rotate;
-                                const rotateX = current.grabMode === 'top' ? rotate * 0.18 : -rotate * 0.18;
-                                current.curlEl.style.transform =
-                                    `perspective(1600px) translate3d(0,0,${lift}px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
-                                current.curlEl.style.filter =
-                                    `drop-shadow(${current.direction === 'forward' ? '-9px' : '9px'} ${current.grabMode === 'top' ? '7px' : '-7px'} 14px rgba(40,30,20,${0.13 + cornerProgress * 0.16}))`;
-                                const cornerCrease = current.curlEl.querySelector('.coread-page-crease') as HTMLElement | null;
-                                if (cornerCrease) {
-                                    const creaseX = current.direction === 'forward' ? Math.max(0, px - 16) : Math.min(width, px + 16);
-                                    cornerCrease.style.left = `${(creaseX / width) * 100}%`;
-                                    cornerCrease.style.opacity = String(Math.min(1, cornerProgress * 2.5));
-                                }
-                            }                    if (e.cancelable) e.preventDefault();
-                } : undefined}
-                onPointerUp={mode === 'reading' ? (e) => {
+                    if (e.cancelable) e.preventDefault();
+                } : undefined}onPointerUp={mode === 'reading' ? (e) => {
                     const gesture = pagePointerRef.current;
                     if (!gesture || e.pointerId !== gesture.pointerId) return;
 
@@ -5304,8 +5191,7 @@ const StudyApp: React.FC = () => {
                     const dx = e.clientX - gesture.startX;
                     const dy = e.clientY - gesture.startY;
 
-                    // 没有实际拖动：交给 click 事件处理。这样单击可以延迟到确认不是双击，
-                    // 双击则只呼出原来的控制栏，不会连续翻两页。
+                    // 没有实际拖动 = 点击：交给 click 处理直接翻页
                     if (!gesture.direction && Math.abs(dx) <= 4 && Math.abs(dy) <= 4) {
                         const rect = e.currentTarget.getBoundingClientRect();
                         const target = e.target as HTMLElement | null;
@@ -5320,113 +5206,57 @@ const StudyApp: React.FC = () => {
                         return;
                     }
 
-                    const direction =
-                        gesture.direction ??
-                        (dx < 0 ? 'forward' : 'backward');
+                    const direction = gesture.direction ?? (dx < 0 ? 'forward' : 'backward');
+                    const canTurn = direction === 'forward' ? page < totalPages : page > 1;
 
-                    const canTurn =
-                        direction === 'forward' ? page < totalPages : page > 1;
-
-                    const bodyEl = gesture.bodyEl;
-                    const curlEl = gesture.curlEl;
                     const pageEl = gesture.pageEl;
+                    const flipContainer = gesture.flipContainer;
                     const width = Math.max(pageEl?.getBoundingClientRect().width || window.innerWidth, 1);
-                    const height = Math.max(pageEl?.getBoundingClientRect().height || window.innerHeight, 1);
+                    const progress = Math.min(1, Math.max(0, Math.abs(dx) / width));
+                    const THRESHOLD = 0.30;
+                    const shouldTurn = canTurn && progress > THRESHOLD;
+                    const settleMs = Math.max(220, Math.min(readerPageTurnDuration, shouldTurn ? 380 : 280));
 
                     pagePointerRef.current = null;
                     pagePointerXRef.current = null;
 
-                    if (!pageEl || !bodyEl || !curlEl || !canTurn) {
-                        bodyEl && (pageEl.style.clipPath = 'inset(0 0 0 0)');
-                        if (curlEl) {
-                            curlEl.remove();
-                        }
+                    if (!pageEl) {
+                        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
                         return;
                     }
 
-                    // 松手判断：超过阈值完成翻页，不足回弹
-                    const progress = Math.min(1, Math.max(0, Math.abs(dx) / width));
-                    const THRESHOLD = 0.32;
-                    const shouldTurn = canTurn && progress > THRESHOLD;
-                    const settleMs = Math.max(220, Math.min(readerPageTurnDuration, shouldTurn ? 420 : 320));
-                    bodyEl.style.transition = `clip-path ${settleMs}ms cubic-bezier(0.18,0.82,0.18,1)`;
-                    curlEl.style.transition =
-                        `clip-path ${settleMs}ms cubic-bezier(0.18,0.82,0.18,1), transform ${settleMs}ms cubic-bezier(0.18,0.82,0.18,1), filter ${settleMs}ms cubic-bezier(0.18,0.82,0.18,1)`;
-
-                    if (gesture.grabMode === 'center') {
-                        if (shouldTurn) {
-                        const finalFold = direction === 'forward'
-                            ? '18% 0%, 18% 100%'
-                            : '82% 0%, 82% 100%';
-                        pageEl.style.clipPath =
-                            direction === 'forward'
-                                ? `polygon(0% 0%, ${finalFold}, 0% 100%)`
-                                : `polygon(100% 0%, 100% 100%, ${finalFold})`;
-                        curlEl.style.opacity = '1';
-                        curlEl.style.inset = '0';
-                        curlEl.style.width = '100%';
-                        curlEl.style.height = '100%';
-                        curlEl.style.clipPath =
-                            direction === 'forward'
-                                ? `polygon(${finalFold}, 100% 100%, 100% 0%)`
-                                : `polygon(${finalFold}, 0% 0%, 0% 100%)`;
-                        curlEl.style.transformOrigin =
-                            direction === 'forward' ? '18% 50%' : '82% 50%';
-                        curlEl.style.transform =
-                            `perspective(1500px) translate3d(0,0,12px) rotateY(${direction === 'forward' ? -48 : 48}deg)`;
-                        curlEl.style.filter =
-                            `drop-shadow(${direction === 'forward' ? '-10px' : '10px'} 6px 14px rgba(50,40,30,.22))`;
-                        } else {
-                            // 回弹：纸张恢复原位
-                            pageEl.style.clipPath = 'inset(0 0 0 0)';
-                            curlEl.style.opacity = '0';
-                            curlEl.style.clipPath = 'inset(0 0 0 0)';
-                            curlEl.style.transform = 'perspective(1500px) translate3d(0,0,0) rotateY(0deg)';
-                            curlEl.style.filter = 'none';
-                        }
-                    } else {
-                        // 角落模型：继续把“被揪起的角”送过整页，而不是把整张纸瞬间旋成卡片。
-                        pageEl.style.clipPath =
-                            direction === 'forward'
-                                ? 'polygon(0% 0%, 0% 100%, 100% 100%, 100% 0%)'
-                                : 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
-                        curlEl.style.opacity = '1';
-                        curlEl.style.inset = '0';
-                        curlEl.style.width = '100%';
-                        curlEl.style.height = '100%';
-                        curlEl.style.clipPath = 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
-                        curlEl.style.transformOrigin =
-                            direction === 'forward'
-                                ? `100% ${gesture.grabMode === 'top' ? 0 : 100}%`
-                                : `0% ${gesture.grabMode === 'top' ? 0 : 100}%`;
-                        curlEl.style.transform =
-                            `perspective(1600px) translate3d(${direction === 'forward' ? 12 : -12}px,0,28px) rotateX(${gesture.grabMode === 'top' ? 8 : -8}deg) rotateY(${direction === 'forward' ? -62 : 62}deg)`;
-                        curlEl.style.filter =
-                            `drop-shadow(${direction === 'forward' ? '-11px' : '11px'} ${gesture.grabMode === 'top' ? '8px' : '-8px'} 15px rgba(40,30,20,.22))`;
-                        } else {
-                            // 回弹：角落纸张恢复原位
-                            pageEl.style.clipPath = 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
-                            curlEl.style.opacity = '0';
-                            curlEl.style.clipPath = 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
-                            curlEl.style.transform = 'perspective(1600px) translate3d(0,0,0) rotateX(0deg) rotateY(0deg)';
-                            curlEl.style.filter = 'none';
-                        }
+                    // 如果 flipContainer 还没创建（拖动极小），直接恢复
+                    if (!flipContainer) {
+                        pageEl.style.opacity = '1';
+                        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+                        return;
                     }
 
-                    skipNextPageTurnAnimationRef.current = true;
-                    reserveSelectionGesture(1200);
+                    flipContainer.style.transition = `transform ${settleMs}ms cubic-bezier(0.22, 0.72, 0.2, 1), filter ${settleMs}ms ease`;
 
-                    window.setTimeout(() => {
-                        bodyEl.style.transition = '';
-                        pageEl.style.clipPath = '';
-                        bodyEl.style.willChange = '';
+                    if (shouldTurn) {
+                        const finalAngle = direction === 'forward' ? -175 : 175;
+                        flipContainer.style.transform = `perspective(1200px) rotateY(${finalAngle}deg)`;
+                        flipContainer.style.filter = `drop-shadow(${direction === 'forward' ? '-20px' : '20px'} 8px 24px rgba(40,30,20,0.35))`;
 
-                        curlEl.remove();
+                        skipNextPageTurnAnimationRef.current = true;
+                        reserveSelectionGesture(1200);
 
-                        if (shouldTurn) {
+                        window.setTimeout(() => {
+                            flipContainer.remove();
+                            pageEl.style.opacity = '1';
                             goPage(direction === 'forward' ? 1 : -1);
-                        }
-                    }, settleMs);
+                        }, settleMs);
+                    } else {
+                        // 回弹
+                        flipContainer.style.transform = 'perspective(1200px) rotateY(0deg)';
+                        flipContainer.style.filter = 'none';
+
+                        window.setTimeout(() => {
+                            flipContainer.remove();
+                            pageEl.style.opacity = '1';
+                        }, settleMs);
+                    }
 
                     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
                         reserveSelectionGesture(900);
@@ -5435,8 +5265,7 @@ const StudyApp: React.FC = () => {
                     try {
                         e.currentTarget.releasePointerCapture(e.pointerId);
                     } catch {}
-                } : undefined}
-                onPointerCancel={mode === 'reading' ? (e) => {
+                } : undefined}onPointerCancel={mode === 'reading' ? (e) => {
                     const gesture = pagePointerRef.current;
                     if (!gesture || e.pointerId !== gesture.pointerId) return;
 
@@ -5445,24 +5274,18 @@ const StudyApp: React.FC = () => {
                         pagePointerRafRef.current = null;
                     }
 
-                    const bodyEl = gesture.bodyEl;
-                    const curlEl = gesture.curlEl;
                     const pageEl = gesture.pageEl;
+                    const flipContainer = gesture.flipContainer;
                     pagePointerRef.current = null;
                     pagePointerXRef.current = null;
 
-                    if (bodyEl && pageEl) {
-                        bodyEl.style.transition = '';
-                        pageEl.style.clipPath = 'inset(0 0 0 0)';
+                    if (pageEl) {
+                        pageEl.style.opacity = '1';
                     }
-                    if (curlEl) {
-                        curlEl.remove();
+                    if (flipContainer) {
+                        flipContainer.remove();
                     }
-                } : undefined}>
-
-                {loading ? (
-                    <div style={{ textAlign: 'center', padding: '60px 0', color: '#bbb', fontSize: 14 }}>加载中...</div>
-                ) : error ? (
+                } : undefined}   ) : error ? (
                     <div style={{ textAlign: 'center', padding: '60px 20px' }}>
                         <div style={{ fontSize: 13, color: '#e88', marginBottom: 12 }}>{error}</div>
                         <button onClick={() => loadBooks()} style={{ background: 'none', border: `1px solid ${c.primaryBorder}`, borderRadius: 12, padding: '8px 20px', fontSize: 12, color: c.primary, cursor: 'pointer' }}>重试</button>
