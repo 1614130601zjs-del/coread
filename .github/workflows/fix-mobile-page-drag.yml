@@ -1,0 +1,58 @@
+name: Fix mobile page drag
+
+on:
+  push:
+    branches:
+      - fix/mobile-page-drag
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch page drag interaction
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("web/StudyApp.tsx")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  """                    pagePointerXRef.current = e.clientX;\n\n                    try {\n                        e.currentTarget.setPointerCapture(e.pointerId);\n                    } catch {}\n""",
+                  """                    pagePointerXRef.current = e.clientX;\n\n                    if (e.cancelable) e.preventDefault();\n                    try {\n                        e.currentTarget.setPointerCapture(e.pointerId);\n                    } catch {}\n""",
+              ),
+              (
+                  """                    const gesture = pagePointerRef.current;\n                    if (!gesture || e.pointerId !== gesture.pointerId) return;\n                    const dx = e.clientX - gesture.startX;\n""",
+                  """                    const gesture = pagePointerRef.current;\n                    if (!gesture || e.pointerId !== gesture.pointerId) return;\n                    if (e.cancelable) e.preventDefault();\n                    const dx = e.clientX - gesture.startX;\n""",
+              ),
+              (
+                  """                    if (!gesture.direction) {\n                        if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;\n                        if (Math.abs(dx) < Math.abs(dy) * 0.55) return;\n                        gesture.direction = dx < 0 ? 'forward' : 'backward';\n                        setPageTurnDirection(gesture.direction);\n                        reserveSelectionGesture(1400);\n                    }\n""",
+                  """                    if (!gesture.direction) {\n                        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;\n                        // 不要求严格水平：手机手指拖动通常会带一点上下偏移。\n                        // 只要横向位移明显存在，就立即进入翻页状态。\n                        if (Math.abs(dx) < Math.max(4, Math.abs(dy) * 0.35)) return;\n                        gesture.direction = dx < 0 ? 'forward' : 'backward';\n                        setPageTurnDirection(gesture.direction);\n                        reserveSelectionGesture(1400);\n                    }\n""",
+              ),
+          ]
+
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit("Expected source snippet not found; refusing to modify the file.")
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/fix-mobile-page-drag.yml
+          git add web/StudyApp.tsx .github/workflows/fix-mobile-page-drag.yml
+          git commit -m "fix: restore mobile page drag interaction"
+          git push origin HEAD:fix/mobile-page-drag
