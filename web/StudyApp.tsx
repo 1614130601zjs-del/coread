@@ -5112,9 +5112,10 @@ const StudyApp: React.FC = () => {
                         const parent = pageEl.parentElement;
                         if (!parent) return;
 
-                        // 父容器设置 3D 透视
-                        parent.style.perspective = '1500px';
-                        parent.style.transformStyle = 'preserve-3d';
+                        // 创建独立的 3D 透视 wrapper，不影响其他元素
+                        const wrapper = document.createElement('div');
+                        wrapper.style.cssText = 'position:absolute;inset:0;perspective:1500px;transform-style:preserve-3d;z-index:10;pointer-events:none;';
+                        parent.appendChild(wrapper);
 
                         // 创建 flip 容器：包含 front（当前页 clone）和 back（纸张背面）
                         const flip = document.createElement('div');
@@ -5122,7 +5123,6 @@ const StudyApp: React.FC = () => {
                         Object.assign(flip.style, {
                             position: 'absolute', inset: '0',
                             width: '100%', height: '100%',
-                            zIndex: '10', pointerEvents: 'none',
                             transformStyle: 'preserve-3d',
                             willChange: 'transform',
                         });
@@ -5153,12 +5153,12 @@ const StudyApp: React.FC = () => {
 
                         flip.appendChild(front);
                         flip.appendChild(back);
-                        parent.appendChild(flip);
+                        wrapper.appendChild(flip);
 
                         // 隐藏原页面，避免重叠
                         pageEl.style.visibility = 'hidden';
 
-                        gesture.flipContainer = flip;
+                        gesture.flipContainer = wrapper;
                     }
 
                     if (gesture.direction === 'forward' && dx >= 0) return;
@@ -5503,12 +5503,11 @@ const StudyApp: React.FC = () => {
                                     isolation: 'isolate',
                                 }}
                             >
-                                {/* Layer 0: 下一页（完整、不透明，始终存在但被遮挡） */}
+                                {/* Layer 0: 目标方向相邻页（完整、不透明） */}
                                 {readerPageTurnEffect === 'curl' ? (
-                                    <>
-                                        {adjacentPageFragments.previous.length > 0 && renderLayeredPreview(adjacentPageFragments.previous, page - 1)}
-                                        {adjacentPageFragments.next.length > 0 && renderLayeredPreview(adjacentPageFragments.next, page + 1)}
-                                    </>
+                                    pageTurnDirection === 'backward'
+                                        ? (adjacentPageFragments.previous.length > 0 && renderLayeredPreview(adjacentPageFragments.previous, page - 1))
+                                        : (adjacentPageFragments.next.length > 0 && renderLayeredPreview(adjacentPageFragments.next, page + 1))
                                 ) : (
                                     pageTurnDirection === 'backward'
                                         ? (adjacentPageFragments.previous.length > 0 && renderLayeredPreview(adjacentPageFragments.previous, page - 1))
