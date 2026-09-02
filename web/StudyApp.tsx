@@ -1167,6 +1167,7 @@ const StudyApp: React.FC = () => {
     const [editBookCategory, setEditBookCategory] = useState('待看');
     const [editBookTags, setEditBookTags] = useState<string[]>([]);
     const [editBookNote, setEditBookNote] = useState('');
+    const [editBookCover, setEditBookCover] = useState('');
     const [deleteOptionValue, setDeleteOptionValue] = useState('');
     const [newOptionType, setNewOptionType] = useState<'category' | 'tag'>('tag');
     const [newOptionValue, setNewOptionValue] = useState('');
@@ -1838,6 +1839,7 @@ const StudyApp: React.FC = () => {
         setEditBookCategory(book.category || '待看');
         setEditBookTags(book.tags || []);
         setEditBookNote(book.note || '');
+        setEditBookCover(book.cover_image || '');
     };
 
     const saveBookEditor = async () => {
@@ -1851,6 +1853,7 @@ const StudyApp: React.FC = () => {
                 category: editBookCategory || '待看',
                 tags: editBookTags,
                 note: editBookNote,
+                cover_image: editBookCover,
             });
             setEditingBook(null);
             await loadBooks();
@@ -6292,6 +6295,27 @@ const StudyApp: React.FC = () => {
                         <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 5 }}>书名</label>
                         <input value={editBookTitle} onChange={e => setEditBookTitle(e.target.value)}
                             style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', border: `1px solid ${c.primaryBorder}`, borderRadius: 8, fontSize: 13, marginBottom: 14 }} />
+                        <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 5, marginTop: 8 }}>封面</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                            {editBookCover ? (
+                                <img src={api.imageUrl(editingBook!.id, editBookCover)} alt="" style={{ width: 60, height: 80, objectFit: 'cover', borderRadius: 6, border: `1px solid ${c.primaryBorder}` }} />
+                            ) : (
+                                <div style={{ width: 60, height: 80, borderRadius: 6, border: `1px dashed ${c.primaryBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: 11 }}>无封面</div>
+                            )}
+                            <input type="file" accept="image/*" onChange={async e => {
+                                const file = e.target.files?.[0];
+                                if (!file || !editingBook) return;
+                                try {
+                                    const result = await api.uploadCover(editingBook.id, file);
+                                    if (result.cover_image) {
+                                        setEditBookCover(result.cover_image);
+                                        toast('封面上传成功');
+                                    }
+                                } catch (err: any) {
+                                    toast(`上传失败: ${err.message}`);
+                                }
+                            }} style={{ fontSize: 11 }} />
+                        </div>
 
                         <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 5 }}>主分类（只能选一个）</label>
                         <select value={editBookCategory} onChange={e => setEditBookCategory(e.target.value)}
