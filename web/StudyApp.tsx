@@ -530,6 +530,37 @@ const STUDY_THEME_CSS = `
 .xiaowo-study .coread-reader-page-transition {
     will-change: transform, opacity;
 }
+/* Page Curl: 真实纸张卷曲翻页 */
+.xiaowo-study .coread-reader-page-curl-live {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    z-index: 4; pointer-events: none; overflow: hidden;
+    box-sizing: border-box; background: var(--reader-surface, #faf8f5);
+    opacity: 1; display: block; transform: translate3d(0,0,0);
+    transform-style: preserve-3d; backface-visibility: hidden;
+    will-change: clip-path, transform, filter; contain: paint;
+}
+.xiaowo-study .coread-reader-page-curl-live .coread-reader-body {
+    background: var(--reader-surface, #faf8f5) !important;
+}
+.xiaowo-study .coread-page-curl-backface {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    background: linear-gradient(90deg, rgba(0,0,0,0.06) 0%, rgba(255,255,255,0.35) 50%, rgba(0,0,0,0.04) 100%);
+    mix-blend-mode: multiply; opacity: 0; transition: opacity 0.15s ease; z-index: 5;
+}
+.xiaowo-study .coread-reader-page-curl-live[data-curl-active="true"] .coread-page-curl-backface {
+    opacity: 1;
+}
+.xiaowo-study .coread-page-crease {
+    position: absolute; top: 0; bottom: 0; width: 3px;
+    pointer-events: none; z-index: 6; opacity: 0;
+    background: linear-gradient(180deg, transparent, rgba(0,0,0,0.18) 40%, rgba(0,0,0,0.28) 50%, rgba(0,0,0,0.18) 60%, transparent);
+    box-shadow: 0 0 20px rgba(0,0,0,0.12); transform: translateZ(6px);
+    transition: opacity 0.1s ease;
+}
+.xiaowo-study .coread-reader-page-curl-live[data-curl-active="true"] .coread-page-crease {
+    opacity: 1;
+}
 `;
 
 // Menus are transient overlays, so collapsed controls do not reserve reader height.
@@ -551,17 +582,18 @@ const CHAPTER_GAP_BOTTOM = 28;
 const PAGEBREAK_CACHE_PREFIX = 'pagebreaks-v3-';
 const READER_LAYOUT_DEFAULTS_VERSION = '3';
 type ReaderTheme = 'eink' | 'warm' | 'paper' | 'kraft' | 'green' | 'navy' | 'dark' | 'custom';
-type ReaderPageTurnEffect = 'slide' | 'fade' | 'none';
-const DEFAULT_READER_PAGE_TURN_EFFECT: ReaderPageTurnEffect = 'slide';
+type ReaderPageTurnEffect = 'curl' | 'slide' | 'fade' | 'none';
+const DEFAULT_READER_PAGE_TURN_EFFECT: ReaderPageTurnEffect = 'curl';
 const DEFAULT_READER_PAGE_TURN_DURATION = 650;
 const READER_PAGE_TURN_EFFECT_OPTIONS: { value: ReaderPageTurnEffect; label: string; description: string }[] = [
-    { value: 'slide', label: '滑动', description: '页面平滑滑入，最接近翻页感' },
+    { value: 'curl', label: '真实翻页', description: 'Page Curl 纸张卷曲翻页，像真实实体书' },
+    { value: 'slide', label: '滑动', description: '页面平滑滑入' },
     { value: 'fade', label: '淡入', description: '轻柔淡入，不产生位移' },
     { value: 'none', label: '无动画', description: '立即切换页面' },
 ];
 const loadReaderPageTurnEffect = (): ReaderPageTurnEffect => {
     const saved = localStorage.getItem('coread-reader-page-turn-effect');
-    return saved === 'slide' || saved === 'fade' || saved === 'none' ? saved : DEFAULT_READER_PAGE_TURN_EFFECT;
+    return saved === 'curl' || saved === 'slide' || saved === 'fade' || saved === 'none' ? saved : DEFAULT_READER_PAGE_TURN_EFFECT;
 };
 const loadReaderPageTurnDuration = (): number => {
     const saved = Number(localStorage.getItem('coread-reader-page-turn-duration'));
@@ -3452,7 +3484,8 @@ const StudyApp: React.FC = () => {
             window.clearTimeout(readerTapTimerRef.current);
             readerTapTimerRef.current = null;
             readerTapPendingRef.current = null;
-            toggleBar();
+            openReaderPanel('typography');
+            setShowBar(true);
             return;
         }
 
@@ -5037,6 +5070,11 @@ const StudyApp: React.FC = () => {
                         return;
                     }
 
+                    if (readerPageTurnEffect !== 'curl') {
+                        pagePointerRef.current = null;
+                        return;
+                    }
+
                     const pageEl = document.querySelector('.coread-reader-page-transition') as HTMLElement | null;
                     const bodyEl = pageEl?.querySelector('[data-page-content]') as HTMLElement | null;
                     if (!pageEl || !bodyEl) return;
@@ -5048,6 +5086,7 @@ const StudyApp: React.FC = () => {
                     curlEl.removeAttribute('data-page-main-content');
                     curlEl.querySelectorAll('[data-page-curl-sheet]').forEach((node) => node.remove());
                     curlEl.setAttribute('data-page-curl-sheet', 'true');
+                    curlEl.setAttribute('data-curl-active', 'true');
                     Object.assign(curlEl.style, {
                         position: 'absolute', inset: '0', width: '100%', height: '100%',
                         zIndex: '4', pointerEvents: 'none', overflow: 'hidden',
@@ -5055,6 +5094,12 @@ const StudyApp: React.FC = () => {
                         transform: 'translate3d(0,0,0)', transformStyle: 'preserve-3d',
                         backfaceVisibility: 'hidden', willChange: 'clip-path, transform, filter',
                     });
+                    const backface = document.createElement('div');
+                    backface.className = 'coread-page-curl-backface';
+                    curlEl.appendChild(backface);
+                    const crease = document.createElement('div');
+                    crease.className = 'coread-page-crease';
+                    curlEl.appendChild(crease);
                     pageEl.parentElement?.appendChild(curlEl);
 
                     const pageRect = pageEl.getBoundingClientRect();
@@ -5174,6 +5219,11 @@ const StudyApp: React.FC = () => {
                                     `perspective(1500px) translate3d(0,0,${lift}px) rotateY(${current.direction === 'forward' ? -bend : bend}deg)`;
                                 current.curlEl.style.filter =
                                     `drop-shadow(${current.direction === 'forward' ? '-8px' : '8px'} 5px 13px rgba(50,40,30,${0.16 + progress * 0.12}))`;
+                                const creaseEl = current.curlEl.querySelector('.coread-page-crease') as HTMLElement | null;
+                                if (creaseEl) {
+                                    creaseEl.style.left = `${(px / width) * 100}%`;
+                                    creaseEl.style.opacity = String(Math.min(1, progress * 2.5));
+                                }
                             } else {
                                 // 靠近上/下边按下：角落模型。
                                 // 上半区抓上角，下半区抓下角；左右方向只决定是哪一侧的角。
@@ -5234,6 +5284,12 @@ const StudyApp: React.FC = () => {
                                     `perspective(1600px) translate3d(0,0,${lift}px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
                                 current.curlEl.style.filter =
                                     `drop-shadow(${current.direction === 'forward' ? '-9px' : '9px'} ${current.grabMode === 'top' ? '7px' : '-7px'} 14px rgba(40,30,20,${0.13 + cornerProgress * 0.16}))`;
+                                const cornerCrease = current.curlEl.querySelector('.coread-page-crease') as HTMLElement | null;
+                                if (cornerCrease) {
+                                    const creaseX = current.direction === 'forward' ? Math.max(0, px - 16) : Math.min(width, px + 16);
+                                    cornerCrease.style.left = `${(creaseX / width) * 100}%`;
+                                    cornerCrease.style.opacity = String(Math.min(1, cornerProgress * 2.5));
+                                }
                             }                    if (e.cancelable) e.preventDefault();
                 } : undefined}
                 onPointerUp={mode === 'reading' ? (e) => {
@@ -5288,13 +5344,17 @@ const StudyApp: React.FC = () => {
                         return;
                     }
 
-                    // 松手必翻：无论从哪里按下，都继续完成当前选择的纸张模型。
-                    const settleMs = Math.max(220, Math.min(readerPageTurnDuration, 420));
+                    // 松手判断：超过阈值完成翻页，不足回弹
+                    const progress = Math.min(1, Math.max(0, Math.abs(dx) / width));
+                    const THRESHOLD = 0.32;
+                    const shouldTurn = canTurn && progress > THRESHOLD;
+                    const settleMs = Math.max(220, Math.min(readerPageTurnDuration, shouldTurn ? 420 : 320));
                     bodyEl.style.transition = `clip-path ${settleMs}ms cubic-bezier(0.18,0.82,0.18,1)`;
                     curlEl.style.transition =
                         `clip-path ${settleMs}ms cubic-bezier(0.18,0.82,0.18,1), transform ${settleMs}ms cubic-bezier(0.18,0.82,0.18,1), filter ${settleMs}ms cubic-bezier(0.18,0.82,0.18,1)`;
 
                     if (gesture.grabMode === 'center') {
+                        if (shouldTurn) {
                         const finalFold = direction === 'forward'
                             ? '18% 0%, 18% 100%'
                             : '82% 0%, 82% 100%';
@@ -5316,6 +5376,14 @@ const StudyApp: React.FC = () => {
                             `perspective(1500px) translate3d(0,0,12px) rotateY(${direction === 'forward' ? -48 : 48}deg)`;
                         curlEl.style.filter =
                             `drop-shadow(${direction === 'forward' ? '-10px' : '10px'} 6px 14px rgba(50,40,30,.22))`;
+                        } else {
+                            // 回弹：纸张恢复原位
+                            pageEl.style.clipPath = 'inset(0 0 0 0)';
+                            curlEl.style.opacity = '0';
+                            curlEl.style.clipPath = 'inset(0 0 0 0)';
+                            curlEl.style.transform = 'perspective(1500px) translate3d(0,0,0) rotateY(0deg)';
+                            curlEl.style.filter = 'none';
+                        }
                     } else {
                         // 角落模型：继续把“被揪起的角”送过整页，而不是把整张纸瞬间旋成卡片。
                         pageEl.style.clipPath =
@@ -5335,6 +5403,14 @@ const StudyApp: React.FC = () => {
                             `perspective(1600px) translate3d(${direction === 'forward' ? 12 : -12}px,0,28px) rotateX(${gesture.grabMode === 'top' ? 8 : -8}deg) rotateY(${direction === 'forward' ? -62 : 62}deg)`;
                         curlEl.style.filter =
                             `drop-shadow(${direction === 'forward' ? '-11px' : '11px'} ${gesture.grabMode === 'top' ? '8px' : '-8px'} 15px rgba(40,30,20,.22))`;
+                        } else {
+                            // 回弹：角落纸张恢复原位
+                            pageEl.style.clipPath = 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
+                            curlEl.style.opacity = '0';
+                            curlEl.style.clipPath = 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)';
+                            curlEl.style.transform = 'perspective(1600px) translate3d(0,0,0) rotateX(0deg) rotateY(0deg)';
+                            curlEl.style.filter = 'none';
+                        }
                     }
 
                     skipNextPageTurnAnimationRef.current = true;
@@ -5347,7 +5423,9 @@ const StudyApp: React.FC = () => {
 
                         curlEl.remove();
 
-                        goPage(direction === 'forward' ? 1 : -1);
+                        if (shouldTurn) {
+                            goPage(direction === 'forward' ? 1 : -1);
+                        }
                     }, settleMs);
 
                     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
@@ -5590,29 +5668,19 @@ const StudyApp: React.FC = () => {
                                     isolation: 'isolate',
                                 }}
                             >
-                                {pageTurnDirection === 'backward'
-                                    ? (adjacentPageFragments.previous.length > 0 && renderLayeredPreview(adjacentPageFragments.previous, page - 1))
-                                    : (adjacentPageFragments.next.length > 0 && renderLayeredPreview(adjacentPageFragments.next, page + 1))}
+                                {/* Layer 0: 下一页（完整、不透明，始终存在但被遮挡） */}
+                                {readerPageTurnEffect === 'curl' ? (
+                                    <>
+                                        {adjacentPageFragments.previous.length > 0 && renderLayeredPreview(adjacentPageFragments.previous, page - 1)}
+                                        {adjacentPageFragments.next.length > 0 && renderLayeredPreview(adjacentPageFragments.next, page + 1)}
+                                    </>
+                                ) : (
+                                    pageTurnDirection === 'backward'
+                                        ? (adjacentPageFragments.previous.length > 0 && renderLayeredPreview(adjacentPageFragments.previous, page - 1))
+                                        : (adjacentPageFragments.next.length > 0 && renderLayeredPreview(adjacentPageFragments.next, page + 1))
+                                )}
 
-                            <div
-                                key={`reader-page-${page}-${pageTurnNonce}`}
-                                className={`coread-reader-page-transition ${!skipNextPageTurnAnimationRef.current && readerPageTurnEffect === 'slide' ? `is-slide-${pageTurnDirection}` : !skipNextPageTurnAnimationRef.current && readerPageTurnEffect === 'fade' ? 'is-fade' : ''}`}
-                                style={{
-                                    '--coread-page-turn-duration': `${readerPageTurnDuration}ms`,
-                                    position: 'absolute',
-                                    inset: 0,
-                                    width: '100%',
-                                    height: '100%',
-                                    zIndex: 2,
-                                    background: readerSurface,
-                                    transform: 'translate3d(0, 0, 0)',
-                                    transformOrigin: 'center center',
-                                    backfaceVisibility: 'hidden',
-                                    transformStyle: 'preserve-3d',
-                                    overflow: 'visible',
-                                    perspective: 1200,
-                                } as React.CSSProperties}
-                            >
+                                {/* Layer 1: 翻起页（由 pointer 事件动态创建） */}
                                 <div
                                     aria-hidden="true"
                                     data-page-curl-sheet
@@ -5635,6 +5703,28 @@ const StudyApp: React.FC = () => {
                                         contain: 'paint',
                                     } as React.CSSProperties}
                                 />
+
+                                {/* Layer 2: 当前页（主内容层） */}
+                            <div
+                                key={`reader-page-${page}-${pageTurnNonce}`}
+                                className={`coread-reader-page-transition ${!skipNextPageTurnAnimationRef.current && readerPageTurnEffect !== 'curl' && readerPageTurnEffect === 'slide' ? `is-slide-${pageTurnDirection}` : !skipNextPageTurnAnimationRef.current && readerPageTurnEffect === 'fade' ? 'is-fade' : ''}`}
+                                style={{
+                                    '--coread-page-turn-duration': `${readerPageTurnDuration}ms`,
+                                    '--reader-surface': readerSurface,
+                                    position: 'absolute',
+                                    inset: 0,
+                                    width: '100%',
+                                    height: '100%',
+                                    zIndex: 2,
+                                    background: readerSurface,
+                                    transform: 'translate3d(0, 0, 0)',
+                                    transformOrigin: 'center center',
+                                    backfaceVisibility: 'hidden',
+                                    transformStyle: 'preserve-3d',
+                                    overflow: 'visible',
+                                    perspective: 1200,
+                                } as React.CSSProperties}
+                            >
 
 <div
                                     data-page-content
