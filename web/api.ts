@@ -146,5 +146,22 @@ export const api = {
     `${API_BASE}/v1/book-images/${bookId}/${filename}`,
   deleteLibraryOption: (type: 'category' | 'tag', value: string) =>
     request('/v1/library/options', { method: 'DELETE', body: JSON.stringify({ type, value }) }),
+  uploadCover: (bookId: number, file: File) => {
+    const formData = new FormData();
+    formData.append('cover', file);
+    return fetch(`${API_BASE}/v1/books/${bookId}/cover`, {
+      method: 'POST',
+      headers: { 'x-owner-key': ROOM_OWNER_KEY },
+      body: formData,
+      credentials: 'include',
+    }).then(async res => {
+      if (!res.ok) {
+        let data: any = null;
+        try { data = await res.json(); } catch {}
+        throw Object.assign(new Error(data?.error || `${res.status} ${res.statusText}`), { status: res.status, data });
+      }
+      return res.json();
+    });
+  },
   wishlistUrl: () => `${API_BASE}/v1/reading-wishlist`,
 };
