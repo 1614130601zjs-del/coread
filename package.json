@@ -1,16 +1,13 @@
 {
   "name": "coread",
-  "version": "0.1.0",
-  "description": "共读室 — AI与人类的共读批注系统 / Co-reading room with shared annotations between AI and humans",
+  "version": "0.3.0",
+  "description": "Coread - an AI and human co-reading annotation system",
   "type": "module",
   "main": "server.mjs",
-  "bin": {
-    "coread": "./cli.mjs"
-  },
   "scripts": {
-    "start": "npm run build && node server.mjs",
-    "dev": "npx vite",
-    "build": "npx vite build",
+    "start": "node server.mjs",
+    "dev": "vite",
+    "build": "vite build",
     "mcp": "node mcp-stdio.mjs",
     "mcp:sse": "node mcp-sse.mjs"
   },
@@ -23,21 +20,17 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@supabase/supabase-js": "^2.112.3",
     "adm-zip": "^0.5.10",
     "archiver": "^7.0.0",
     "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "typescript": "^5.7.0",
-    "vite": "^6.0.0"
-  },
-  "allowScripts": {
-    "better-sqlite3@11.10.0": true
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
   }
 }

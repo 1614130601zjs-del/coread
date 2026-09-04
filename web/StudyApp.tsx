@@ -506,55 +506,6 @@ const STUDY_THEME_CSS = `
         justify-content: start;
     }
 }
-@keyframes coread-reader-page-slide-forward {
-    from { transform: translate3d(8%, 0, 0); opacity: 0.88; }
-    to { transform: translate3d(0, 0, 0); opacity: 1; }
-}
-@keyframes coread-reader-page-slide-backward {
-    from { transform: translate3d(-8%, 0, 0); opacity: 0.88; }
-    to { transform: translate3d(0, 0, 0); opacity: 1; }
-}
-@keyframes coread-reader-page-fade {
-    from { opacity: 0.45; }
-    to { opacity: 1; }
-}
-.xiaowo-study .coread-reader-page-transition.is-slide-forward {
-    animation: coread-reader-page-slide-forward var(--coread-page-turn-duration) cubic-bezier(0.22, 0.72, 0.2, 1) both !important;
-}
-.xiaowo-study .coread-reader-page-transition.is-slide-backward {
-    animation: coread-reader-page-slide-backward var(--coread-page-turn-duration) cubic-bezier(0.22, 0.72, 0.2, 1) both !important;
-}
-.xiaowo-study .coread-reader-page-transition.is-fade {
-    animation: coread-reader-page-fade var(--coread-page-turn-duration) ease-out both !important;
-}
-.xiaowo-study .coread-reader-page-transition {
-    will-change: transform, opacity;
-}
-/* Page Curl: 真实纸张卷曲翻页 */
-.xiaowo-study .coread-page-flip {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
-    z-index: 10; pointer-events: none;
-    transform-style: preserve-3d;
-    will-change: transform;
-}
-.xiaowo-study .coread-page-flip-front {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
-    backface-visibility: hidden;
-    overflow: hidden;
-    background: var(--reader-surface, #faf8f5);
-}
-.xiaowo-study .coread-page-flip-back {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
-    backface-visibility: hidden;
-    transform: rotateY(180deg) scaleX(-1);
-    overflow: hidden;
-    background: var(--reader-surface, #faf8f5);
-    opacity: 0.9;
-    filter: brightness(0.92);
-}
 `;
 
 // Menus are transient overlays, so collapsed controls do not reserve reader height.
@@ -576,23 +527,6 @@ const CHAPTER_GAP_BOTTOM = 28;
 const PAGEBREAK_CACHE_PREFIX = 'pagebreaks-v3-';
 const READER_LAYOUT_DEFAULTS_VERSION = '3';
 type ReaderTheme = 'eink' | 'warm' | 'paper' | 'kraft' | 'green' | 'navy' | 'dark' | 'custom';
-type ReaderPageTurnEffect = 'curl' | 'slide' | 'fade' | 'none';
-const DEFAULT_READER_PAGE_TURN_EFFECT: ReaderPageTurnEffect = 'curl';
-const DEFAULT_READER_PAGE_TURN_DURATION = 650;
-const READER_PAGE_TURN_EFFECT_OPTIONS: { value: ReaderPageTurnEffect; label: string; description: string }[] = [
-    { value: 'curl', label: '真实翻页', description: 'Page Curl 纸张卷曲翻页，像真实实体书' },
-    { value: 'slide', label: '滑动', description: '页面平滑滑入' },
-    { value: 'fade', label: '淡入', description: '轻柔淡入，不产生位移' },
-    { value: 'none', label: '无动画', description: '立即切换页面' },
-];
-const loadReaderPageTurnEffect = (): ReaderPageTurnEffect => {
-    const saved = localStorage.getItem('coread-reader-page-turn-effect');
-    return saved === 'curl' || saved === 'slide' || saved === 'fade' || saved === 'none' ? saved : DEFAULT_READER_PAGE_TURN_EFFECT;
-};
-const loadReaderPageTurnDuration = (): number => {
-    const saved = Number(localStorage.getItem('coread-reader-page-turn-duration'));
-    return Number.isFinite(saved) ? clampNumber(saved, 280, 1400) : DEFAULT_READER_PAGE_TURN_DURATION;
-};
 type ReaderTexture = 'none' | 'paper' | 'kraft';
 type ShelfColumns = 'auto' | 2 | 3 | 4 | 5 | 6;
 type LocalReadingProgress = { bookId: number; paragraphIdx: number; updatedAt: number; pending: boolean; };
@@ -625,23 +559,6 @@ type ReaderLayout = {
     noteLineHeight: number;
     noteLetterSpacing: number;
 };
-type GlobalReaderFont = {
-    source: 'system' | 'upload' | 'url' | 'css';
-    name: string;
-    family: string;
-    format?: string;
-    url?: string;
-    version: number;
-};
-const DEFAULT_GLOBAL_READER_FONT: GlobalReaderFont = {
-    source: 'system',
-    name: '系统宋体',
-    family: '"Songti SC", "SimSun", serif',
-    version: 0,
-};
-const GLOBAL_READER_FONT_META_KEY = 'coread-global-reader-font';
-const GLOBAL_READER_FONT_DATA_KEY = 'coread-global-reader-font-data';
-const GLOBAL_READER_FONT_CSS_LINK_ID = 'coread-global-reader-font-css';
 const DEFAULT_READER_LAYOUT: ReaderLayout = {
     fontSize: 17,
     lineHeight: 1.85,
@@ -922,95 +839,6 @@ const idbDel = (key: string): Promise<void> =>
             tx.onerror = () => resolve();
         } catch { resolve(); }
     }));
-const saveGlobalReaderFontMeta = (font: GlobalReaderFont) => {
-    try { localStorage.setItem(GLOBAL_READER_FONT_META_KEY, JSON.stringify(font)); } catch {}
-};
-const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('字体文件读取失败'));
-    reader.onerror = () => reject(reader.error || new Error('字体文件读取失败'));
-    reader.readAsDataURL(file);
-});
-const removeGlobalReaderFontCssLink = () => {
-    try { document.getElementById(GLOBAL_READER_FONT_CSS_LINK_ID)?.remove(); } catch {}
-};
-const waitForStylesheet = (link: HTMLLinkElement): Promise<boolean> => new Promise(resolve => {
-    let settled = false;
-    const finish = (ok: boolean) => {
-        if (settled) return;
-        settled = true;
-        resolve(ok);
-    };
-    link.onload = () => finish(true);
-    link.onerror = () => finish(false);
-    window.setTimeout(() => finish(true), 12000);
-});
-const loadGlobalReaderCssFont = async (font: GlobalReaderFont): Promise<boolean> => {
-    if (typeof window === 'undefined' || !document.fonts || !font.url || !font.family) return false;
-    try {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = font.url;
-        link.setAttribute('data-coread-global-font', '1');
-        document.head.appendChild(link);
-        const loaded = await waitForStylesheet(link);
-        if (!loaded) { link.remove(); return false; }
-        const family = font.family.includes(',') ? font.family.split(',')[0].trim() : font.family.trim();
-        await document.fonts.load(`${Math.max(12, readerFontProbeSize)}px ${family}`, '汉字天地玄黄ABCDEFGHIJKLMNOPQRSTUVWXYZ');
-        await document.fonts.ready;
-        const previous = document.getElementById(GLOBAL_READER_FONT_CSS_LINK_ID);
-        if (previous && previous !== link) previous.remove();
-        link.id = GLOBAL_READER_FONT_CSS_LINK_ID;
-        return true;
-    } catch {
-        return false;
-    }
-};
-const readerFontProbeSize = 17;
-const loadGlobalReaderFontFace = async (font: GlobalReaderFont, sourceOverride?: string): Promise<boolean> => {
-    if (typeof window === 'undefined' || !document.fonts) return font.source === 'system';
-    if (font.source === 'system') {
-        removeGlobalReaderFontCssLink();
-        return true;
-    }
-    if (font.source === 'css') return loadGlobalReaderCssFont(font);
-    if (!('FontFace' in window)) return false;
-    removeGlobalReaderFontCssLink();
-    const source = sourceOverride || (font.source === 'url' ? font.url : await idbGet(GLOBAL_READER_FONT_DATA_KEY));
-    if (!source) return false;
-    try {
-        const face = new FontFace(font.family, `url("${source}")`);
-        await face.load();
-        document.fonts.add(face);
-        await document.fonts.ready;
-        return true;
-    } catch {
-        return false;
-    }
-};
-const extractFontFamilyFromCss = (css: string): string | null => {
-    const matches = [...css.matchAll(/@font-face\s*\{[\s\S]*?font-family\s*:\s*["']?([^;"'}]+)["']?\s*;/gi)];
-    for (const match of matches) {
-        const family = match[1]?.trim();
-        if (family) return family;
-    }
-    return null;
-};
-const inferFontFamilyFromCssUrl = (url: string): string | null => {
-    if (/HuiwenMinchoGBK/i.test(url)) return 'Huiwen-MinchoGBK';
-    return null;
-};
-const resolveCssFontFamily = async (url: string): Promise<string | null> => {
-    try {
-        const response = await fetch(url, { mode: 'cors' });
-        if (response.ok) {
-            const css = await response.text();
-            const family = extractFontFamilyFromCss(css);
-            if (family) return family;
-        }
-    } catch {}
-    return inferFontFamilyFromCssUrl(url);
-};
 const idbDelPrefix = (prefix: string): Promise<void> =>
     idbOpen().then(db => new Promise<void>((resolve) => {
         if (!db) return resolve();
@@ -1327,7 +1155,7 @@ const StudyApp: React.FC = () => {
     const [selectedBooks, setSelectedBooks] = useState<Set<number>>(new Set());
     const batchFileRef = useRef<HTMLInputElement>(null);
     const [libraryCategories, setLibraryCategories] = useState<string[]>(['待看', '纯爱', '言情', '百合', '文学', '散文', '论文']);
-    const [libraryTags, setLibraryTags] = useState<string[]>(['没看完']);
+    const [libraryTags, setLibraryTags] = useState<string[]>(['森', '林', '木', '没看完']);
     const [shelfCategory, setShelfCategory] = useState('全部');
     const [shelfTag, setShelfTag] = useState('全部');
     const [shelfQuery, setShelfQuery] = useState('');
@@ -1339,8 +1167,6 @@ const StudyApp: React.FC = () => {
     const [editBookCategory, setEditBookCategory] = useState('待看');
     const [editBookTags, setEditBookTags] = useState<string[]>([]);
     const [editBookNote, setEditBookNote] = useState('');
-    const [editBookCover, setEditBookCover] = useState('');
-    const [deleteOptionValue, setDeleteOptionValue] = useState('');
     const [newOptionType, setNewOptionType] = useState<'category' | 'tag'>('tag');
     const [newOptionValue, setNewOptionValue] = useState('');
     const [showBar, setShowBar] = useState(false);
@@ -1361,41 +1187,12 @@ const StudyApp: React.FC = () => {
     const [customAppearance, setCustomAppearance] = useState(loadCustomAppearance);
     const [shelfColumns, setShelfColumns] = useState<ShelfColumns>(loadShelfColumns);
     const [readerLayout, setReaderLayout] = useState<ReaderLayout>(loadReaderLayout);
-    const [globalReaderFont, setGlobalReaderFont] = useState<GlobalReaderFont>(() => {
-        try {
-            const saved = JSON.parse(localStorage.getItem(GLOBAL_READER_FONT_META_KEY) || 'null');
-            if (!saved || !['system', 'upload', 'url', 'css'].includes(saved.source)) return { ...DEFAULT_GLOBAL_READER_FONT };
-            return {
-                ...DEFAULT_GLOBAL_READER_FONT,
-                source: saved.source,
-                name: typeof saved.name === 'string' ? saved.name.slice(0, 120) : DEFAULT_GLOBAL_READER_FONT.name,
-                family: typeof saved.family === 'string' ? saved.family.slice(0, 180) : DEFAULT_GLOBAL_READER_FONT.family,
-                format: typeof saved.format === 'string' ? saved.format : undefined,
-                url: typeof saved.url === 'string' ? saved.url : undefined,
-                version: Number.isFinite(Number(saved.version)) ? Number(saved.version) : 0,
-            };
-        } catch {
-            return { ...DEFAULT_GLOBAL_READER_FONT };
-        }
-    });
-    const [globalReaderFontLoading, setGlobalReaderFontLoading] = useState(false);
-    const [globalReaderFontUrl, setGlobalReaderFontUrl] = useState('');
-    const [globalReaderFontError, setGlobalReaderFontError] = useState('');
-
     const [readerPresets, setReaderPresets] = useState<Record<string, { theme: ReaderTheme; layout: ReaderLayout }>>(() => {
         try { return JSON.parse(localStorage.getItem('coread-reader-presets') || '{}'); } catch { return {}; }
     });
     const [showFontPanel, setShowFontPanel] = useState(false);
     const [readerPanelFocus, setReaderPanelFocus] = useState<'typography' | 'appearance'>('typography');
     const [readerBrightness, setReaderBrightness] = useState(() => parseInt(localStorage.getItem('coread-brightness') || '100', 10));
-    const [readerPageTurnEffect, setReaderPageTurnEffect] = useState<ReaderPageTurnEffect>(loadReaderPageTurnEffect);
-    const [readerPageTurnDuration, setReaderPageTurnDuration] = useState<number>(loadReaderPageTurnDuration);
-    const [pageTurnDirection, setPageTurnDirection] = useState<'forward' | 'backward'>('forward');
-    const [pageTurnNonce, setPageTurnNonce] = useState(0);
-    const skipNextPageTurnAnimationRef = useRef(false);
-    useEffect(() => {
-        if (skipNextPageTurnAnimationRef.current) skipNextPageTurnAnimationRef.current = false;
-    }, [page]);
     const readerAppearance = readerTheme === 'custom'
         ? {
             ...READER_THEME_OPTIONS.custom,
@@ -1542,21 +1339,6 @@ const StudyApp: React.FC = () => {
         }
     }, [mode, showFontPanel, showMoreMenu, showChapterMenu]);
 
-    useEffect(() => {
-        if (globalReaderFont.source === 'system') return;
-        let cancelled = false;
-        setGlobalReaderFontLoading(true);
-        void loadGlobalReaderFontFace(globalReaderFont).then(ok => {
-            if (cancelled) return;
-            if (!ok) {
-                setGlobalReaderFontError('字帖加载失败，已自动回退系统字体');
-                setGlobalReaderFont({ ...DEFAULT_GLOBAL_READER_FONT, version: Date.now() });
-            }
-            setGlobalReaderFontLoading(false);
-        });
-        return () => { cancelled = true; };
-    }, [globalReaderFont.source, globalReaderFont.version]);
-
     const updateReaderLayout = (patch: Partial<ReaderLayout>) => {
         setReaderLayout(previous => {
             const next = { ...previous, ...patch };
@@ -1564,97 +1346,6 @@ const StudyApp: React.FC = () => {
             return next;
         });
     };
-    const applyGlobalReaderFont = async (font: GlobalReaderFont, dataUrl?: string) => {
-        setGlobalReaderFontLoading(true);
-        setGlobalReaderFontError('');
-        try {
-            const ok = await loadGlobalReaderFontFace(font, dataUrl);
-            if (!ok) throw new Error('字帖加载失败，请检查字体文件或链接');
-            if (dataUrl) {
-                const saved = await idbSet(GLOBAL_READER_FONT_DATA_KEY, dataUrl);
-                if (!saved) throw new Error('本机字体存储失败');
-            } else if (font.source === 'url' || font.source === 'css') {
-                await idbDel(GLOBAL_READER_FONT_DATA_KEY);
-            }
-            saveGlobalReaderFontMeta(font);
-            setGlobalReaderFont(font);
-            toast(`已应用全局字帖「${font.name}」`);
-        } catch (error) {
-            setGlobalReaderFontError(error instanceof Error ? error.message : '字体加载失败');
-            toast('字帖加载失败，已保留原字体');
-        } finally {
-            setGlobalReaderFontLoading(false);
-        }
-    };
-    const handleGlobalReaderFontFile = async (file: File | undefined) => {
-        if (!file) return;
-        const lower = file.name.toLowerCase();
-        if (!/\.(ttf|otf|woff|woff2)$/.test(lower)) {
-            setGlobalReaderFontError('只支持 TTF / OTF / WOFF / WOFF2 字体文件');
-            return;
-        }
-        if (file.size > 20 * 1024 * 1024) {
-            setGlobalReaderFontError('字体文件不能超过 20 MB');
-            return;
-        }
-        try {
-            const dataUrl = await readFileAsDataUrl(file);
-            await applyGlobalReaderFont({
-                source: 'upload',
-                name: file.name,
-                family: `CoreadFont_${Date.now()}`,
-                format: lower.split('.').pop() || '',
-                version: Date.now(),
-            }, dataUrl);
-        } catch {
-            setGlobalReaderFontError('字体文件读取失败');
-        }
-    };
-    const applyGlobalReaderFontUrl = async () => {
-        const url = globalReaderFontUrl.trim();
-        if (!/^https?:\/\//i.test(url)) {
-            setGlobalReaderFontError('请输入 http:// 或 https:// 开头的字体链接');
-            return;
-        }
-        setGlobalReaderFontLoading(true);
-        setGlobalReaderFontError('');
-        try {
-            const looksLikeCss = /\.css(?:[?#].*)?$/i.test(url) || /fontsapi\.zeoseven\.com|cdn\.jsdelivr\.net\/gh\/[^/]+\/ReiFonts/i.test(url);
-            if (looksLikeCss) {
-                const family = await resolveCssFontFamily(url);
-                if (!family) throw new Error('没找到 CSS 里的字体名称，请确认这是可访问的 WebFont CSS 链接');
-                const name = family.replace(/^['"]|['"]$/g, '').slice(0, 120);
-                await applyGlobalReaderFont({
-                    source: 'css',
-                    name,
-                    family: `'${name}'`,
-                    version: Date.now(),
-                    url,
-                });
-            } else {
-                const name = url.split('/').pop()?.split('?')[0] || '远程字帖';
-                await applyGlobalReaderFont({
-                    source: 'url',
-                    name: name.slice(0, 120),
-                    family: `CoreadRemoteFont_${Date.now()}`,
-                    version: Date.now(),
-                    url,
-                });
-            }
-        } finally {
-            setGlobalReaderFontLoading(false);
-        }
-    };
-    const resetGlobalReaderFont = async () => {
-        removeGlobalReaderFontCssLink();
-        await idbDel(GLOBAL_READER_FONT_DATA_KEY);
-        try { localStorage.removeItem(GLOBAL_READER_FONT_META_KEY); } catch {}
-        setGlobalReaderFont({ ...DEFAULT_GLOBAL_READER_FONT, version: Date.now() });
-        setGlobalReaderFontUrl('');
-        setGlobalReaderFontError('');
-        toast('已恢复系统字体');
-    };
-
     const chooseReaderTheme = (theme: ReaderTheme) => {
         setReaderTheme(theme);
         localStorage.setItem('coread-reader-theme', theme);
@@ -1705,30 +1396,9 @@ const StudyApp: React.FC = () => {
         startedOnText: boolean;
         startedAtEdge: boolean;
         selectionClaimed: boolean;
-        dragging: boolean;
-        direction: 'forward' | 'backward' | null;
     } | null>(null);
     const touchLongPressTimer = useRef<number | null>(null);
     const selectionGestureLockUntil = useRef(0);
-    const pageDragAnimationRef = useRef<Animation | null>(null);
-    // v11: 自适应抓页：中间=整页掀起，上/下边=对应角落揪起。
-    // 页面元素直接缓存，避免每一帧 querySelector。
-    const pagePointerRef = useRef<{
-        pointerId: number;
-        startX: number;
-        startY: number;
-        pageEl: HTMLElement | null;
-        bodyEl: HTMLElement | null;
-        flipContainer: HTMLElement | null;
-        direction: 'forward' | 'backward' | null;
-        // 根据按下位置选择翻页模型：
-        // center = 整页掀起；top/bottom = 从对应角落揪起。
-        grabMode: 'center' | 'top' | 'bottom';
-        moved: boolean;
-    } | null>(null);
-    const pagePointerRafRef = useRef<number | null>(null);
-    const pagePointerXRef = useRef<number | null>(null);
-
 
     const reserveSelectionGesture = (duration = 900) => {
         selectionGestureLockUntil.current = Math.max(selectionGestureLockUntil.current, Date.now() + duration);
@@ -2167,7 +1837,6 @@ const StudyApp: React.FC = () => {
         setEditBookCategory(book.category || '待看');
         setEditBookTags(book.tags || []);
         setEditBookNote(book.note || '');
-        setEditBookCover(book.cover_image || '');
     };
 
     const saveBookEditor = async () => {
@@ -2181,7 +1850,6 @@ const StudyApp: React.FC = () => {
                 category: editBookCategory || '待看',
                 tags: editBookTags,
                 note: editBookNote,
-                cover_image: editBookCover,
             });
             setEditingBook(null);
             await loadBooks();
@@ -2202,20 +1870,6 @@ const StudyApp: React.FC = () => {
             toast(`已新增${newOptionType === 'category' ? '分类' : '标签'}`);
         } catch (e: any) {
             toast(`新增失败: ${e.message}`);
-        }
-    };
-
-    const deleteLibraryOption = async () => {
-        const value = deleteOptionValue;
-        if (!value) return;
-        try {
-            const result = await api.deleteLibraryOption(newOptionType, value);
-            if (newOptionType === 'category') setLibraryCategories(result.values || libraryCategories.filter(c => c !== value));
-            else setLibraryTags(result.values || libraryTags.filter(t => t !== value));
-            setDeleteOptionValue('');
-            toast(`已删除${newOptionType === 'category' ? '分类' : '标签'}`);
-        } catch (e: any) {
-            toast(`删除失败: ${e.message}`);
         }
     };
 
@@ -2584,8 +2238,6 @@ const StudyApp: React.FC = () => {
         Math.min(readerLayout.maxWidth, readerSize.width - readerLayout.sidePadding * 2),
     );
     const paginationLayoutSignature = [
-        globalReaderFont.version,
-        globalReaderFont.family,
         readerLayout.fontSize,
         readerLayout.lineHeight,
         readerLayout.letterSpacing,
@@ -2637,7 +2289,7 @@ const StudyApp: React.FC = () => {
             const displayText = stripHeading(para.content).slice(start, end);
             const inner = document.createElement('div');
             inner.textContent = displayText || ' ';
-            inner.style.fontFamily = globalReaderFont.family;
+            inner.style.fontFamily = '"Songti SC", "SimSun", serif';
             inner.style.fontSize = `${chapterTitle ? readerLayout.fontSize + 4 : para.content.trim().startsWith('# ') ? readerLayout.fontSize + 3 : para.content.trim().startsWith('## ') ? readerLayout.fontSize + 2 : readerLayout.fontSize}px`;
             inner.style.lineHeight = String(chapterTitle ? 2.2 : readerLayout.lineHeight);
             inner.style.letterSpacing = `${chapterTitle ? readerLayout.letterSpacing + 0.7 : readerLayout.letterSpacing}px`;
@@ -3296,8 +2948,6 @@ const StudyApp: React.FC = () => {
         }
         next = Math.max(1, Math.min(totalPages, next));
         if (next !== page) {
-            setPageTurnDirection(next > page ? 'forward' : 'backward');
-            setPageTurnNonce(value => value + 1);
             setActiveComments([]); setCommentingIdx(null); setSelRange(null); setFloatingBar(null);
             setPage(next);
             if (next === totalPages && totalPages > 1) {
@@ -3466,40 +3116,13 @@ const StudyApp: React.FC = () => {
         setPendingFavoriteJump(null);
     }, [pendingFavoriteJump, activeBook?.id, readingLoading, allParas, allComments, pageBreaks, totalPages]);
 
-    const readerTapTimerRef = useRef<number | null>(null);
-    const readerTapPendingRef = useRef<{ x: number; y: number; time: number } | null>(null);
-    const readerTapHandledByPointerRef = useRef(false);
-
-    const queueReaderTap = (x: number, y: number, width: number) => {
-        const now = Date.now();
-        const pending = readerTapPendingRef.current;
-
-        if (readerTapTimerRef.current !== null && pending && now - pending.time <= 360) {
-            window.clearTimeout(readerTapTimerRef.current);
-            readerTapTimerRef.current = null;
-            readerTapPendingRef.current = null;
-            openReaderPanel('typography');
-            setShowBar(true);
-            return;
-        }
-
-        readerTapPendingRef.current = { x, y, time: now };
-        readerTapTimerRef.current = window.setTimeout(() => {
-            readerTapTimerRef.current = null;
-            const tap = readerTapPendingRef.current;
-            readerTapPendingRef.current = null;
-            if (!tap) return;
-            goPage(tap.x < width * 0.5 ? -1 : 1);
-        }, 280);
-    };
-
     const handleReaderSurfaceClick = (event: React.MouseEvent<HTMLDivElement>) => {
         if (mode !== 'reading') {
             if (activeComments.length) closeCommentDetails();
             return;
         }
         const target = event.target as HTMLElement | null;
-        if (target?.closest('button, input, textarea, select, a, [contenteditable="true"], [data-reader-control], [data-reader-panel]')) return;
+        if (target?.closest('button, input, textarea, select, a, [contenteditable="true"]')) return;
         if (Date.now() < selectionGestureLockUntil.current) return;
         if (window.getSelection()?.toString().trim()) return;
         if (activeComments.length > 0 || commentingIdx !== null) {
@@ -3509,24 +3132,15 @@ const StudyApp: React.FC = () => {
         }
         const rect = event.currentTarget.getBoundingClientRect();
         if (!rect.width) return;
-        // 某些 Android WebView 在 pointer capture + touch-action:none 下不会稳定派发 click。
-        // click 仍作为兜底，但真正的单/双击判定也会在 pointerup 中执行。
-        if (readerTapHandledByPointerRef.current) {
-            readerTapHandledByPointerRef.current = false;
-            return;
+        const ratio = (event.clientX - rect.left) / rect.width;
+        if (ratio < 0.3) {
+            goPage(-1);
+        } else if (ratio > 0.7) {
+            goPage(1);
+        } else {
+            toggleBar();
         }
-        queueReaderTap(event.clientX - rect.left, event.clientY - rect.top, rect.width);
     };
-
-    useEffect(() => () => {
-        if (readerTapTimerRef.current !== null) window.clearTimeout(readerTapTimerRef.current);
-    }, []);
-
-    useEffect(() => {
-        if (!readerTapHandledByPointerRef.current) return;
-        const id = window.setTimeout(() => { readerTapHandledByPointerRef.current = false; }, 500);
-        return () => window.clearTimeout(id);
-    });
 
     const startAnnotation = () => {
         replyPageRef.current = page;
@@ -4646,141 +4260,6 @@ const StudyApp: React.FC = () => {
     const stripHeading = (s: string) => s.replace(/^#+\s*/, '');
     const isHeading = (s: string) => s.trim().startsWith('#');
 
-    // v5：为抓页时的“底层纸张”准备相邻页面。
-    // 这里只计算上一页/下一页，不改变现有分页算法。
-    const buildPageFragmentsForLayer = useCallback((targetPage: number): PageFragment[] => {
-        if (targetPage < 1 || targetPage > pageBreaks.length || allParas.length === 0) return [];
-        const start = pageBreaks[targetPage - 1] || { paraIndex: 0, offset: 0 };
-        const end = targetPage < pageBreaks.length
-            ? pageBreaks[targetPage]
-            : { paraIndex: allParas.length, offset: 0 };
-        const fragments: PageFragment[] = [];
-
-        for (
-            let i = start.paraIndex;
-            i < end.paraIndex || (i === end.paraIndex && end.offset > 0);
-            i++
-        ) {
-            const para = paragraphAt(i);
-            if (!para || !para.content) continue;
-            const raw = stripHeading(para.content);
-            const from = i === start.paraIndex ? start.offset : 0;
-            const to = i === end.paraIndex ? end.offset : raw.length;
-            if (to <= from) continue;
-            fragments.push({
-                ...para,
-                content: raw.slice(from, to),
-                sourceIdx: i,
-                startOffset: from,
-                endOffset: to,
-                isPartialStart: from > 0,
-                isPartialEnd: to < raw.length,
-            });
-        }
-        return fragments;
-    }, [allParas, pageBreaks]);
-
-    const adjacentPageFragments = useMemo(() => ({
-        previous: buildPageFragmentsForLayer(page - 1),
-        next: buildPageFragmentsForLayer(page + 1),
-    }), [buildPageFragmentsForLayer, page, paragraphChunkRevision]);
-
-    const renderLayeredPreview = useCallback((
-        fragments: PageFragment[],
-        layerPage: number,
-    ) => (
-        <div
-            aria-hidden="true"
-            data-reader-layer-page={layerPage}
-            style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                overflow: 'hidden',
-                pointerEvents: 'none',
-                boxSizing: 'border-box',
-                background: readerSurface,
-                zIndex: 1,
-                transform: 'translate3d(0, 0, 0)',
-                backfaceVisibility: 'hidden',
-            }}
-        >
-            <div
-                className="coread-reader-body"
-                style={{
-                    width: readerContentWidth,
-                    maxWidth: '100%',
-                    height: '100%',
-                    minHeight: pageHeight
-                        ? pageHeight + readerLayout.topInset + readerLayout.bottomInset
-                        : undefined,
-                    margin: '0 auto',
-                    paddingTop: readerLayout.topInset,
-                    paddingBottom: readerLayout.bottomInset,
-                    boxSizing: 'border-box',
-                    overflow: 'hidden',
-                    fontFamily: globalReaderFont.family,
-                    color: readerText,
-                }}
-            >
-                {fragments.map((frag, visibleIndex) => {
-                    const original = paragraphAt(frag.sourceIdx) || frag;
-                    const chapterTitle = isChapterStartIndex(frag.sourceIdx) && !frag.isPartialStart;
-                    const heading = isHeading(original.content) && !frag.isPartialStart;
-
-                    return (
-                        <div
-                            key={`layer-${layerPage}-${frag.idx}-${frag.startOffset}-${frag.endOffset}`}
-                            style={{
-                                marginBottom: chapterTitle ? CHAPTER_GAP_BOTTOM : readerLayout.paragraphGap,
-                                marginTop: chapterTitle && visibleIndex > 0 ? CHAPTER_GAP_TOP : 0,
-                            }}
-                        >
-                            <div
-                                style={{
-                                    fontSize: chapterTitle
-                                        ? readerLayout.fontSize + 4
-                                        : original.content.trim().startsWith('# ')
-                                            ? readerLayout.fontSize + 3
-                                            : original.content.trim().startsWith('## ')
-                                                ? readerLayout.fontSize + 2
-                                                : readerLayout.fontSize,
-                                    fontFamily: globalReaderFont.family,
-                                    lineHeight: chapterTitle ? 2.2 : readerLayout.lineHeight,
-                                    color: readerText,
-                                    letterSpacing: chapterTitle
-                                        ? readerLayout.letterSpacing + 0.7
-                                        : readerLayout.letterSpacing,
-                                    textIndent: (heading || chapterTitle || frag.isPartialStart)
-                                        ? 0
-                                        : `${readerLayout.textIndent}em`,
-                                    fontWeight: chapterTitle ? 800 : heading ? 700 : 400,
-                                    marginBottom: heading ? 4 : 0,
-                                    textAlign: chapterTitle ? 'center' : undefined,
-                                    whiteSpace: 'pre-wrap',
-                                } as React.CSSProperties}
-                            >
-                                {decodeEntities(frag.content)}
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
-    ), [
-        readerSurface,
-        readerContentWidth,
-        pageHeight,
-        readerLayout,
-        globalReaderFont.family,
-        readerText,
-        paragraphAt,
-        isChapterStartIndex,
-        isHeading,
-        decodeEntities,
-    ]);
-
     const renderHighlighted = (text: string, paraIdx: number, highlights: Comment[], searchMatch?: { start: number; end: number } | null) => {
         const positioned = highlights
             .filter(h => h.sel_start_idx != null && h.sel_end_idx != null && h.sel_start_idx! < text.length)
@@ -5045,280 +4524,73 @@ const StudyApp: React.FC = () => {
                 flex: 1, overflow: mode === 'reading' ? 'hidden' : 'auto', position: 'relative',
                 padding: mode === 'reading' ? '0' : '8px 20px 32px',
                 background: mode === 'reading' ? readerSurface : 'transparent',
-                touchAction: mode === 'reading' ? 'none' : undefined,
-                userSelect: mode === 'reading' ? 'none' : undefined,
-                WebkitUserSelect: mode === 'reading' ? 'none' : undefined,
-                overscrollBehavior: mode === 'reading' ? 'none' : undefined,
             }} className="no-scrollbar study-scroll-container"
                 onClick={handleReaderSurfaceClick}
-                onPointerDown={mode === 'reading' ? (e) => {
-                    if (e.isPrimary === false) return;
-                    pageDragAnimationRef.current?.cancel();
-
+                onTouchStart={mode === 'reading' ? (e) => {
+                    clearTouchLongPressTimer();
                     const target = e.target as HTMLElement | null;
-                    const startedOnControl = Boolean(
-                        target?.closest('button, input, textarea, select, a, [role="button"], [data-reader-control], [data-reader-panel]')
-                    );
-                    if (startedOnControl) {
-                        pagePointerRef.current = null;
-                        return;
-                    }
-
-                    if (readerPageTurnEffect !== 'curl') {
-                        pagePointerRef.current = null;
-                        return;
-                    }
-
-                    const pageEl = document.querySelector('.coread-reader-page-transition') as HTMLElement | null;
-                    if (!pageEl) return;
-
-                    const pageRect = pageEl.getBoundingClientRect();
-                    const startX = e.clientX - pageRect.left;
-                    const startY = e.clientY - pageRect.top;
-                    const startRatio = startY / Math.max(pageRect.height, 1);
-                    const grabMode: 'center' | 'top' | 'bottom' =
-                        startRatio < 0.28 ? 'top' :
-                        startRatio > 0.72 ? 'bottom' :
-                        'center';
-
-                    // 根据点击位置预判翻页方向
-                    const initialDirection = startX > pageRect.width / 2 ? 'forward' : 'backward';
-                    setPageTurnDirection(initialDirection);
-
-                    pagePointerRef.current = {
-                        pointerId: e.pointerId,
-                        startX: e.clientX,
-                        startY: e.clientY,
-                        pageEl,
-                        flipContainer: null,
-                        direction: null,
-                        grabMode,
-                        moved: false,
+                    const startedOnText = Boolean(target?.closest('[data-reader-text="true"]'));
+                    touchStart.current = {
+                        x: e.touches[0].clientX,
+                        y: e.touches[0].clientY,
+                        t: Date.now(),
+                        startedOnText,
+                        startedAtEdge: e.touches[0].clientX <= READER_EDGE_GESTURE_PX
+                            || e.touches[0].clientX >= window.innerWidth - READER_EDGE_GESTURE_PX,
+                        selectionClaimed: false,
                     };
-                    pagePointerXRef.current = e.clientX;
-
-                    try {
-                        e.currentTarget.setPointerCapture(e.pointerId);
-                    } catch {}
-                    if (e.cancelable) e.preventDefault();
-                } : undefined}onPointerMove={mode === 'reading' ? (e) => {
-                    const gesture = pagePointerRef.current;
-                    if (!gesture || e.pointerId !== gesture.pointerId) return;
-
-                    const dx = e.clientX - gesture.startX;
-                    const dy = e.clientY - gesture.startY;
-
-                    if (!gesture.direction) {
-                        if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
-                        if (Math.abs(dx) < Math.abs(dy) * 0.55) return;
-                        gesture.direction = dx < 0 ? 'forward' : 'backward';
-                        reserveSelectionGesture(1400);
-
-                        const pageEl = gesture.pageEl;
-                        if (!pageEl) return;
-                        const parent = pageEl.parentElement;
-                        if (!parent) return;
-
-                        // 父容器设置 3D 透视
-                        parent.style.perspective = '1500px';
-                        parent.style.transformStyle = 'preserve-3d';
-
-                        // 创建翻转层，覆盖在当前页上方
-                        const flip = document.createElement('div');
-                        flip.className = 'coread-page-flip';
-                        Object.assign(flip.style, {
-                            position: 'absolute', inset: '0',
-                            width: '100%', height: '100%',
-                            zIndex: '10', pointerEvents: 'none',
-                            transformStyle: 'preserve-3d',
-                            willChange: 'transform',
-                        });
-
-                        // front：当前页完整 clone（正面）
-                        const front = pageEl.cloneNode(true) as HTMLElement;
-                        front.className = 'coread-page-flip-front';
-                        Object.assign(front.style, {
-                            position: 'absolute', inset: '0',
-                            width: '100%', height: '100%',
-                            backfaceVisibility: 'hidden',
-                            overflow: 'hidden',
-                            background: readerSurface,
-                        });
-
-                        // back：当前页镜像（背面，文字镜像 + 纸张纹理）
-                        const back = pageEl.cloneNode(true) as HTMLElement;
-                        back.className = 'coread-page-flip-back';
-                        Object.assign(back.style, {
-                            position: 'absolute', inset: '0',
-                            width: '100%', height: '100%',
-                            backfaceVisibility: 'hidden',
-                            transform: 'rotateY(180deg) scaleX(-1)',
-                            overflow: 'hidden',
-                            background: readerSurface,
-                            opacity: '0.85',
-                            filter: 'brightness(0.92)',
-                        });
-                        // 给背面添加纸张纹理
-                        const backOverlay = document.createElement('div');
-                        backOverlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;background:linear-gradient(90deg,rgba(0,0,0,0.06) 0%,rgba(0,0,0,0.14) 50%,rgba(0,0,0,0.06) 100%);box-shadow:inset 0 0 60px rgba(0,0,0,0.1);';
-                        back.appendChild(backOverlay);
-
-                        flip.appendChild(front);
-                        flip.appendChild(back);
-                        parent.appendChild(flip);
-
-                        gesture.flipContainer = flip;
-                    }
-
-                    if (gesture.direction === 'forward' && dx >= 0) return;
-                    if (gesture.direction === 'backward' && dx <= 0) return;
-
-                    gesture.moved = Math.abs(dx) > 3;
-                    const current = pagePointerRef.current;
-                    if (!current || !current.flipContainer) return;
-
-                    const rect = current.pageEl?.getBoundingClientRect();
-                    const width = Math.max(rect?.width || window.innerWidth, 1);
-                    const progress = Math.min(1, Math.max(0, Math.abs(dx) / width));
-
-                    // 旋转角度
-                    const maxAngle = 175;
-                    const angle = current.direction === 'forward'
-                        ? -progress * maxAngle
-                        : progress * maxAngle;
-
-                    // 旋转轴在页面边缘
-                    const originX = current.direction === 'forward' ? '100%' : '0%';
-                    const originY = current.grabMode === 'top' ? '15%' :
-                                     current.grabMode === 'bottom' ? '85%' : '50%';
-
-                    current.flipContainer.style.transformOrigin = `${originX} ${originY}`;
-                    current.flipContainer.style.transform = `rotateY(${angle}deg)`;
-
-                    // 动态阴影
-                    const shadowIntensity = Math.sin(progress * Math.PI) * 0.4;
-                    const shadowX = current.direction === 'forward'
-                        ? -shadowIntensity * 30
-                        : shadowIntensity * 30;
-                    current.flipContainer.style.filter = `drop-shadow(${shadowX}px 2px ${shadowIntensity * 16 + 6}px rgba(30,20,10,${shadowIntensity + 0.08}))`;
-
-                    if (e.cancelable) e.preventDefault();
-                } : undefined}onPointerUp={mode === 'reading' ? (e) => {
-                    const gesture = pagePointerRef.current;
-                    if (!gesture || e.pointerId !== gesture.pointerId) return;
-
-                    if (pagePointerRafRef.current !== null) {
-                        window.cancelAnimationFrame(pagePointerRafRef.current);
-                        pagePointerRafRef.current = null;
-                    }
-
-                    const dx = e.clientX - gesture.startX;
-                    const dy = e.clientY - gesture.startY;
-
-                    // 没有拖动 = 点击：直接完成翻页动画
-                    if (!gesture.direction && Math.abs(dx) <= 4 && Math.abs(dy) <= 4) {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const target = e.target as HTMLElement | null;
-                        const isControl = Boolean(target?.closest('button, input, textarea, select, a, [role="button"], [data-reader-control], [data-reader-panel]'));
-                        if (!isControl && Date.now() >= selectionGestureLockUntil.current && !window.getSelection()?.toString().trim()) {
-                            readerTapHandledByPointerRef.current = true;
-                            queueReaderTap(e.clientX - rect.left, e.clientY - rect.top, rect.width);
-                        }
-                        pagePointerRef.current = null;
-                        pagePointerXRef.current = null;
-                        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
-                        return;
-                    }
-
-                    const direction = gesture.direction ?? (dx < 0 ? 'forward' : 'backward');
-                    const canTurn = direction === 'forward' ? page < totalPages : page > 1;
-
-                    const pageEl = gesture.pageEl;
-                    const flip = gesture.flipContainer;
-
-                    pagePointerRef.current = null;
-                    pagePointerXRef.current = null;
-
-                    if (!pageEl) {
-                        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
-                        return;
-                    }
-
-                    if (!flip) {
-                        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
-                        return;
-                    }
-
-                    if (!canTurn) {
-                        // 边界回弹
-                        flip.style.transition = 'transform 280ms cubic-bezier(0.22, 0.72, 0.2, 1), filter 280ms ease';
-                        flip.style.transform = 'rotateY(0deg)';
-                        flip.style.filter = 'none';
-                        window.setTimeout(() => {
-                            flip.remove();
-                            const parent = pageEl.parentElement;
-                            if (parent) {
-                                parent.style.perspective = '';
-                                parent.style.transformStyle = '';
-                            }
-                        }, 280);
-                        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
-                        return;
-                    }
-
-                    // 松手必翻：不回弹
-                    const settleMs = Math.max(220, Math.min(readerPageTurnDuration, 380));
-                    flip.style.transition = `transform ${settleMs}ms cubic-bezier(0.22, 0.72, 0.2, 1), filter ${settleMs}ms ease`;
-
-                    const finalAngle = direction === 'forward' ? -175 : 175;
-                    flip.style.transform = `rotateY(${finalAngle}deg)`;
-                    flip.style.filter = `drop-shadow(${direction === 'forward' ? '-24px' : '24px'} 4px 20px rgba(30,20,10,0.35))`;
-
-                    skipNextPageTurnAnimationRef.current = true;
-                    reserveSelectionGesture(1200);
-
-                    window.setTimeout(() => {
-                        flip.remove();
-                        const parent = pageEl.parentElement;
-                        if (parent) {
-                            parent.style.perspective = '';
-                            parent.style.transformStyle = '';
-                        }
-                        goPage(direction === 'forward' ? 1 : -1);
-                    }, settleMs);
-
-                    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-                        reserveSelectionGesture(900);
-                    }
-
-                    try {
-                        e.currentTarget.releasePointerCapture(e.pointerId);
-                    } catch {}
-                } : undefined}onPointerCancel={mode === 'reading' ? (e) => {
-                    const gesture = pagePointerRef.current;
-                    if (!gesture || e.pointerId !== gesture.pointerId) return;
-
-                    if (pagePointerRafRef.current !== null) {
-                        window.cancelAnimationFrame(pagePointerRafRef.current);
-                        pagePointerRafRef.current = null;
-                    }
-
-                    const pageEl = gesture.pageEl;
-                    const flip = gesture.flipContainer;
-                    pagePointerRef.current = null;
-                    pagePointerXRef.current = null;
-
-                    if (flip) {
-                        flip.remove();
-                    }
-                    if (pageEl) {
-                        const parent = pageEl.parentElement;
-                        if (parent) {
-                            parent.style.perspective = '';
-                            parent.style.transformStyle = '';
-                        }
+                    if (startedOnText) {
+                        touchLongPressTimer.current = window.setTimeout(() => {
+                            const start = touchStart.current;
+                            if (!start || !start.startedOnText) return;
+                            start.selectionClaimed = true;
+                            reserveSelectionGesture();
+                        }, 460);
                     }
                 } : undefined}
+                onTouchMove={mode === 'reading' ? (e) => {
+                    const start = touchStart.current;
+                    if (!start || !start.startedOnText) return;
+                    const dx = e.touches[0].clientX - start.x;
+                    const dy = e.touches[0].clientY - start.y;
+                    if (Math.hypot(dx, dy) < 10) return;
+                    clearTouchLongPressTimer();
+                    start.selectionClaimed = true;
+                    reserveSelectionGesture();
+                } : undefined}
+                onTouchEnd={mode === 'reading' ? (e) => {
+                    const start = touchStart.current;
+                    if (!start) return;
+                    clearTouchLongPressTimer();
+                    const dx = e.changedTouches[0].clientX - start.x;
+                    const dy = e.changedTouches[0].clientY - start.y;
+                    const dt = Date.now() - start.t;
+                    touchStart.current = null;
+                    // A short tap on text is still a page/menu tap. Only a real
+                    // long-press, drag, or non-empty selection claims the gesture.
+                    if (start.selectionClaimed || Date.now() < selectionGestureLockUntil.current || window.getSelection()?.toString().trim()) return;
+                    // Horizontal swipes remain an auxiliary page turn from non-text space.
+                    if (start.startedOnText) return;
+                    // Keep edge taps for the normal click zones, but leave edge
+                    // swipes to the browser's native back gesture.
+                    if (start.startedAtEdge) return;
+                    if (dt > 500 || Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 60) return;
+                    reserveSelectionGesture(400);
+                    if (dx < -60) goPage(1);
+                    else if (dx > 60) goPage(-1);
+                } : undefined}
+                onTouchCancel={mode === 'reading' ? () => {
+                    clearTouchLongPressTimer();
+                    touchStart.current = null;
+                } : undefined}>
+
+                {loading ? (
+                    <div style={{ textAlign: 'center', padding: '60px 0', color: '#bbb', fontSize: 14 }}>加载中...</div>
+                ) : error ? (
+                    <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+                        <div style={{ fontSize: 13, color: '#e88', marginBottom: 12 }}>{error}</div>
+                        <button onClick={() => loadBooks()} style={{ background: 'none', border: `1px solid ${c.primaryBorder}`, borderRadius: 12, padding: '8px 20px', fontSize: 12, color: c.primary, cursor: 'pointer' }}>重试</button>
+                    </div>
                 ) : mode === 'shelf' ? (
                     <>
                         <div className="coread-shelf-tools">
@@ -5511,89 +4783,20 @@ const StudyApp: React.FC = () => {
                             <div style={{ textAlign: 'center', padding: '40px 0', color: '#bbb', fontSize: 14 }}>这一页没有内容</div>
                         ) : (
                             <div
+                                data-page-content
+                                className="coread-reader-body"
                                 style={{
-                                    position: 'relative',
-                                    width: '100%',
-                                    height: '100%',
-                                    minHeight: 0,
+                                    width: readerContentWidth,
+                                    maxWidth: '100%',
+                                    margin: '0 auto',
+                                    minHeight: pageHeight
+                                        ? pageHeight + readerLayout.topInset + readerLayout.bottomInset
+                                        : undefined,
+                                    paddingTop: readerLayout.topInset,
+                                    paddingBottom: readerLayout.bottomInset,
+                                    boxSizing: 'border-box',
                                     overflow: 'hidden',
-                                    isolation: 'isolate',
-                                }}
-                            >
-                                {/* Layer 0: 目标方向相邻页（完整、不透明） */}
-                                {readerPageTurnEffect === 'curl' ? (
-                                    pageTurnDirection === 'backward'
-                                        ? (adjacentPageFragments.previous.length > 0 && renderLayeredPreview(adjacentPageFragments.previous, page - 1))
-                                        : (adjacentPageFragments.next.length > 0 && renderLayeredPreview(adjacentPageFragments.next, page + 1))
-                                ) : (
-                                    pageTurnDirection === 'backward'
-                                        ? (adjacentPageFragments.previous.length > 0 && renderLayeredPreview(adjacentPageFragments.previous, page - 1))
-                                        : (adjacentPageFragments.next.length > 0 && renderLayeredPreview(adjacentPageFragments.next, page + 1))
-                                )}
-
-                                {/* Layer 1: 翻起页（由 pointer 事件动态创建） */}
-                                <div
-                                    aria-hidden="true"
-                                    data-page-curl-sheet
-                                    style={{
-                                        position: 'absolute',
-                                        inset: 0,
-                                        width: '100%',
-                                        height: '100%',
-                                        opacity: 0,
-                                        display: 'none',
-                                        zIndex: 4,
-                                        pointerEvents: 'none',
-                                        overflow: 'hidden',
-                                        boxSizing: 'border-box',
-                                        background: 'linear-gradient(90deg, transparent 0%, rgba(0,0,0,.16) 48%, rgba(255,255,255,.22) 52%, transparent 100%)',
-                                        boxShadow: '0 12px 30px rgba(50,40,30,.16)',
-                                        transformStyle: 'preserve-3d',
-                                        backfaceVisibility: 'hidden',
-                                        isolation: 'isolate',
-                                        contain: 'paint',
-                                    } as React.CSSProperties}
-                                />
-
-                                {/* Layer 2: 当前页（主内容层） */}
-                            <div
-                                key={`reader-page-${page}-${pageTurnNonce}`}
-                                className={`coread-reader-page-transition ${!skipNextPageTurnAnimationRef.current && readerPageTurnEffect !== 'curl' && readerPageTurnEffect === 'slide' ? `is-slide-${pageTurnDirection}` : !skipNextPageTurnAnimationRef.current && readerPageTurnEffect === 'fade' ? 'is-fade' : ''}`}
-                                style={{
-                                    '--coread-page-turn-duration': `${readerPageTurnDuration}ms`,
-                                    '--reader-surface': readerSurface,
-                                    position: 'absolute',
-                                    inset: 0,
-                                    width: '100%',
-                                    height: '100%',
-                                    zIndex: 2,
-                                    background: readerSurface,
-                                    transform: 'translate3d(0, 0, 0)',
-                                    transformOrigin: 'center center',
-                                    backfaceVisibility: 'hidden',
-                                    transformStyle: 'preserve-3d',
-                                    overflow: 'visible',
-                                    perspective: 1200,
-                                } as React.CSSProperties}
-                            >
-
-<div
-                                    data-page-content
-                                    className="coread-reader-body"
-                                    style={{
-                                        width: readerContentWidth,
-                                        fontFamily: globalReaderFont.family,
-                                        background: readerSurface,
-                                        maxWidth: '100%',
-                                        margin: '0 auto',
-                                        minHeight: pageHeight
-                                            ? pageHeight + readerLayout.topInset + readerLayout.bottomInset
-                                            : undefined,
-                                        paddingTop: readerLayout.topInset,
-                                        paddingBottom: readerLayout.bottomInset,
-                                        boxSizing: 'border-box',
-                                        overflow: 'hidden',
-                                    }}>
+                                }}>
                                 {pageFragments.map((frag, visibleIndex) => {
                                     const original = paragraphAt(frag.sourceIdx) || frag;
                                     const heading = isHeading(original.content) && !frag.isPartialStart;
@@ -5624,7 +4827,6 @@ const StudyApp: React.FC = () => {
                                         <div key={`${frag.idx}-${frag.startOffset}-${frag.endOffset}`} style={{ marginBottom: chapterTitle ? CHAPTER_GAP_BOTTOM : readerLayout.paragraphGap, marginTop: chapterTitle && visibleIndex > 0 ? CHAPTER_GAP_TOP : 0 }}>
                                             <div data-reader-text="true" data-para-idx={frag.idx} data-frag-start={frag.startOffset} data-frag-end={frag.endOffset} style={{
                                                 fontSize: chapterTitle ? readerLayout.fontSize + 4 : original.content.trim().startsWith('# ') ? readerLayout.fontSize + 3 : original.content.trim().startsWith('## ') ? readerLayout.fontSize + 2 : readerLayout.fontSize,
-                                                fontFamily: globalReaderFont.family,
                                                 lineHeight: chapterTitle ? 2.2 : readerLayout.lineHeight, color: readerText,
                                                 letterSpacing: chapterTitle ? readerLayout.letterSpacing + 0.7 : readerLayout.letterSpacing, textIndent: (heading || chapterTitle || frag.isPartialStart) ? 0 : `${readerLayout.textIndent}em`,
                                                 fontWeight: chapterTitle ? 800 : heading ? 700 : 400, marginBottom: heading ? 4 : 0,
@@ -5675,44 +4877,6 @@ const StudyApp: React.FC = () => {
                                         </div>
                                     );
                                 })}
-                                </div>
-
-                                <div
-                                    aria-hidden="true"
-                                    className="coread-page-curl-overlay"
-                                    style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        bottom: 0,
-                                        left: 0,
-                                        width: '18%',
-                                        pointerEvents: 'none',
-                                        zIndex: 4,
-                                        opacity: 'var(--coread-curl-shadow, 0)' as any,
-                                        background: 'linear-gradient(90deg, rgba(0,0,0,.22), rgba(0,0,0,.08) 38%, rgba(255,255,255,.22) 70%, transparent)',
-                                        filter: 'blur(1.2px)',
-                                        mixBlendMode: 'multiply',
-                                        transform: 'translateZ(2px)',
-                                    } as React.CSSProperties}
-                                />
-                                <div
-                                    aria-hidden="true"
-                                    className="coread-page-curl-crease"
-                                    style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        bottom: 0,
-                                        left: 'calc(18% - 1px)',
-                                        width: 2,
-                                        pointerEvents: 'none',
-                                        zIndex: 5,
-                                        opacity: 'var(--coread-curl-shadow, 0)' as any,
-                                        background: 'linear-gradient(180deg, transparent, rgba(0,0,0,.24) 45%, transparent)',
-                                        boxShadow: '0 0 14px rgba(0,0,0,.18)',
-                                        transform: 'translateZ(4px)',
-                                    } as React.CSSProperties}
-                                />
-                            </div>
                             </div>
                         )}
                     </>
@@ -6693,7 +5857,7 @@ const StudyApp: React.FC = () => {
                         )}
                     </div>
 
-                    <div onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{
+                    <div onClick={(e) => e.stopPropagation()} style={{
                         position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 15,
                         background: readerPanel, backdropFilter: 'blur(16px)',
                         borderTop: `1px solid ${readerBorder}`,
@@ -6743,13 +5907,12 @@ const StudyApp: React.FC = () => {
                     </div>
 
                     {/* Reading settings panel — appearance and independent typography */}
-                    <div data-reader-panel onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} style={{
+                    <div onClick={(e) => e.stopPropagation()} style={{
                         position: 'absolute', bottom: showBar ? 156 : -300, left: 12, right: 12, zIndex: 20,
                         background: readerPanel, backdropFilter: 'blur(20px)',
                         borderRadius: 10, padding: '16px 16px', maxHeight: 'calc(100vh - 190px)', overflowY: 'auto',
                         boxShadow: '0 -4px 24px rgba(0,0,0,0.1)', border: `1px solid ${readerBorder}`,
                         opacity: showFontPanel && showBar ? 1 : 0,
-                        isolation: 'isolate',
                         transform: showFontPanel && showBar ? 'translateY(0)' : 'translateY(20px)',
                         pointerEvents: showFontPanel && showBar ? 'auto' : 'none',
                     }}>
@@ -6779,49 +5942,6 @@ const StudyApp: React.FC = () => {
                                             {option.label}
                                         </button>;
                                     })}
-                                </div>
-                                <div style={{ marginTop: 4, paddingTop: 12, borderTop: `1px solid ${readerBorder}` }}>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: readerText, marginBottom: 8 }}>翻页效果</div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 7, marginBottom: 10 }}>
-                                        {READER_PAGE_TURN_EFFECT_OPTIONS.map(option => {
-                                            const selected = readerPageTurnEffect === option.value;
-                                            return (
-                                                <button key={option.value} onClick={() => {
-                                                    setReaderPageTurnEffect(option.value);
-                                                    localStorage.setItem('coread-reader-page-turn-effect', option.value);
-                                                }}
-                                                    title={option.description}
-                                                    style={{
-                                                        minHeight: 38, padding: '6px 5px', borderRadius: 8,
-                                                        border: `1.5px solid ${selected ? c.primary : readerBorder}`,
-                                                        background: selected ? c.primaryBg : 'transparent',
-                                                        color: readerText, cursor: 'pointer', fontSize: 11, fontWeight: selected ? 700 : 500,
-                                                    }}>
-                                                    {option.label}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                    {readerPageTurnEffect !== 'none' && (
-                                        <label style={{ display: 'block', color: readerMuted, fontSize: 11 }}>
-                                            翻页速度
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5 }}>
-                                                <span style={{ flexShrink: 0 }}>慢</span>
-                                                <input type="range" min={280} max={1400} step={20} value={readerPageTurnDuration}
-                                                    onChange={event => {
-                                                        const value = parseInt(event.target.value, 10);
-                                                        setReaderPageTurnDuration(value);
-                                                        localStorage.setItem('coread-reader-page-turn-duration', String(value));
-                                                    }}
-                                                    style={{ flex: 1, accentColor: c.primary, height: 4 }}
-                                                    aria-label="翻页速度" />
-                                                <span style={{ flexShrink: 0 }}>快</span>
-                                            </div>
-                                            <div style={{ marginTop: 4, textAlign: 'center', color: readerMuted, fontSize: 10, opacity: 0.82 }}>
-                                                {readerPageTurnDuration >= 1050 ? '慢速' : readerPageTurnDuration >= 700 ? '舒缓' : readerPageTurnDuration >= 480 ? '标准' : '快速'} · {readerPageTurnDuration}ms
-                                            </div>
-                                        </label>
-                                    )}
                                 </div>
                                 {readerTheme === 'custom' && (
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, paddingTop: 2 }}>
@@ -6853,39 +5973,12 @@ const StudyApp: React.FC = () => {
                                         墨水屏使用纯黑白表面，不使用亮度、纸纹、阴影、模糊、动画或过渡。
                                     </div>
                                 )}
-                        {readerPanelFocus === 'appearance' && (
-                            <div style={{ marginBottom: 14, padding: 10, border: `1px solid ${readerBorder}`, borderRadius: 8, background: readerSurface }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: readerText }}>全局字帖</div>
-                                        <div style={{ marginTop: 3, fontSize: 10, color: readerMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {globalReaderFont.source === 'system' ? '系统宋体' : globalReaderFont.name}
-                                        </div>
-                                    </div>
-                                    {globalReaderFontLoading && <span style={{ fontSize: 10, color: readerMuted }}>加载中…</span>}
-                                    {globalReaderFont.source !== 'system' && (
-                                        <button type="button" onClick={() => { void resetGlobalReaderFont(); }} style={{ border: `1px solid ${readerBorder}`, borderRadius: 6, background: 'transparent', color: readerMuted, padding: '5px 7px', cursor: 'pointer', fontSize: 10 }}>恢复默认</button>
-                                    )}
-                                </div>
-                                <label style={{ display: 'block', marginBottom: 8, padding: '8px 9px', border: `1px dashed ${readerBorder}`, borderRadius: 7, color: readerText, cursor: 'pointer', fontSize: 11, textAlign: 'center' }}>
-                                    上传 TTF / OTF / WOFF / WOFF2
-                                    <input type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" onChange={e => { void handleGlobalReaderFontFile(e.target.files?.[0]); e.currentTarget.value = ''; }} style={{ display: 'none' }} />
-                                </label>
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                    <input value={globalReaderFontUrl} onChange={e => setGlobalReaderFontUrl(e.target.value)} placeholder="或输入字体文件 URL / CSS WebFont URL / CSS" style={{ flex: 1, minWidth: 0, padding: '7px 8px', border: `1px solid ${readerBorder}`, borderRadius: 6, background: readerSurface, color: readerText, fontSize: 10, outline: 'none' }} />
-                                    <button type="button" onClick={() => { void applyGlobalReaderFontUrl(); }} disabled={globalReaderFontLoading || !globalReaderFontUrl.trim()} style={{ padding: '0 9px', border: 'none', borderRadius: 6, background: c.primary, color: '#fff', cursor: 'pointer', fontSize: 10, opacity: globalReaderFontLoading || !globalReaderFontUrl.trim() ? 0.5 : 1 }}>应用</button>
-                                </div>
-                                {globalReaderFontError && <div style={{ marginTop: 7, color: '#a33', fontSize: 10, lineHeight: 1.45 }}>{globalReaderFontError}</div>}
-                                <div style={{ marginTop: 7, color: readerMuted, fontSize: 9, lineHeight: 1.45 }}>应用后作用于正文、章节标题和分页测量；刷新与换书后仍保留。CSS WebFont 也支持分片字体。</div>
-                            </div>
-                        )}
                                 <div style={{ height: 2 }} />
                             </>
                         )}
                         {readerPanelFocus === 'typography' && (
                             <div style={{ fontSize: 13, fontWeight: 700, color: readerText, marginBottom: 10 }}>正文与批注排版</div>
                         )}
-                        {readerPanelFocus === 'typography' && (
                         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14, borderRadius: 8, overflow: 'hidden', border: `1px solid ${readerBorder}` }}>
                             <button onClick={() => updateReaderLayout({ fontSize: Math.max(12, readerLayout.fontSize - 1) })}
                                 style={{ flex: 1, padding: '8px 0', background: 'none', border: 'none', borderRight: `1px solid ${readerBorder}`, cursor: 'pointer', fontSize: 13, fontFamily: 'serif', color: readerMuted }}>
@@ -6899,7 +5992,6 @@ const StudyApp: React.FC = () => {
                                 A<span style={{ fontSize: 9, verticalAlign: 'super' }}>+</span>
                             </button>
                         </div>
-                        )}
                         {readerPanelFocus === 'typography' && <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '9px 12px', alignItems: 'center', marginBottom: 14 }}>
                             <label style={{ fontSize: 12, color: readerMuted }}>正文行距</label>
                             <span style={{ minWidth: 42, textAlign: 'right', fontSize: 11, color: c.primary }}>{readerLayout.lineHeight.toFixed(2)}</span>
@@ -7185,27 +6277,6 @@ const StudyApp: React.FC = () => {
                         <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 5 }}>书名</label>
                         <input value={editBookTitle} onChange={e => setEditBookTitle(e.target.value)}
                             style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', border: `1px solid ${c.primaryBorder}`, borderRadius: 8, fontSize: 13, marginBottom: 14 }} />
-                        <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 5, marginTop: 8 }}>封面</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                            {editBookCover ? (
-                                <img src={api.imageUrl(editingBook!.id, editBookCover)} alt="" style={{ width: 60, height: 80, objectFit: 'cover', borderRadius: 6, border: `1px solid ${c.primaryBorder}` }} />
-                            ) : (
-                                <div style={{ width: 60, height: 80, borderRadius: 6, border: `1px dashed ${c.primaryBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: 11 }}>无封面</div>
-                            )}
-                            <input type="file" accept="image/*" onChange={async e => {
-                                const file = e.target.files?.[0];
-                                if (!file || !editingBook) return;
-                                try {
-                                    const result = await api.uploadCover(editingBook.id, file);
-                                    if (result.cover_image) {
-                                        setEditBookCover(result.cover_image);
-                                        toast('封面上传成功');
-                                    }
-                                } catch (err: any) {
-                                    toast(`上传失败: ${err.message}`);
-                                }
-                            }} style={{ fontSize: 11 }} />
-                        </div>
 
                         <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 5 }}>主分类（只能选一个）</label>
                         <select value={editBookCategory} onChange={e => setEditBookCategory(e.target.value)}
@@ -7234,14 +6305,6 @@ const StudyApp: React.FC = () => {
                                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addLibraryOption(); } }}
                                 style={{ flex: 1, minWidth: 0, padding: '7px 8px', border: `1px solid ${c.primaryBorder}`, borderRadius: 7, fontSize: 11 }} />
                             <button onClick={addLibraryOption} style={{ padding: '7px 10px', border: `1px solid ${c.primaryBorder}`, borderRadius: 7, background: '#fff', color: c.primary, cursor: 'pointer', fontSize: 11 }}>新增</button>
-                        </div>
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-                            <select value={deleteOptionValue} onChange={e => setDeleteOptionValue(e.target.value)}
-                                style={{ flex: 1, minWidth: 0, padding: '7px 6px', border: `1px solid ${c.primaryBorder}`, borderRadius: 7, background: '#fff', color: '#777', fontSize: 11 }}>
-                                <option value="">选择要删除的{newOptionType === 'category' ? '分类' : '标签'}</option>
-                                {(newOptionType === 'category' ? libraryCategories : libraryTags).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                            </select>
-                            <button onClick={deleteLibraryOption} style={{ padding: '7px 10px', border: `1px solid ${c.primaryBorder}`, borderRadius: 7, background: '#fff', color: '#c44', cursor: 'pointer', fontSize: 11 }}>删除</button>
                         </div>
 
                         <label style={{ display: 'block', fontSize: 11, color: '#888', marginBottom: 5 }}>备注</label>
