@@ -38,12 +38,12 @@ replaceOnce(
         if (!globalFont) { style.textContent = ''; return; }
         try {
             const data = JSON.parse(globalFont);
-            const family = String(data.family || 'CoreadGlobalFont').replace(/"/g, '');
-            const source = String(data.src || '').replace(/"/g, '');
+            const family = String(data.family || 'CoreadGlobalFont');
+            const source = String(data.src || '');
             if (data.kind === 'css') {
                 style.textContent = '@import url("' + source + '"); .xiaowo-study,.xiaowo-study *{font-family:"' + family + '",sans-serif !important;}';
             } else {
-                const format = String(data.format || 'truetype').replace(/"/g, '');
+                const format = String(data.format || 'truetype');
                 style.textContent = '@font-face{font-family:"' + family + '";src:url("' + source + '") format("' + format + '");font-display:swap;} .xiaowo-study,.xiaowo-study *{font-family:"' + family + '",sans-serif !important;}';
             }
         } catch { style.textContent = ''; }
