@@ -1,0 +1,44 @@
+name: Rebuild from canonical source
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - rebuild/coread-v2
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout deployment repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync canonical source repository
+        run: |
+          set -e
+          tmp="$(mktemp -d)"
+          git clone --depth 1 https://github.com/joyceslcl/coread-reading-room.git "$tmp/source"
+          rm -rf ./* ./.??* 2>/dev/null || true
+          cp -a "$tmp/source/." .
+          rm -rf .git
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git checkout -B rebuild/coread-v2
+          git add -A
+          git commit -m "chore: sync coread-reading-room as v2 baseline" || true
+          git push --force origin rebuild/coread-v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
