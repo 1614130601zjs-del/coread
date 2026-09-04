@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/fix-react31.mjs && vite build",
     "mcp": "node mcp-stdio.mjs",
     "mcp:sse": "node mcp-sse.mjs"
   },
@@ -25,12 +25,12 @@
     "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
-    "@types/react": "^19.2.16",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.2",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "typescript": "^6.0.3",
-    "vite": "^8.0.16"
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
   }
 }
