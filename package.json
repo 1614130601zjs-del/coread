@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "vite",
-    "build": "node scripts/fix-react31.mjs && node scripts/apply-coread-ui-fixes.mjs && vite build",
+    "build": "node scripts/fix-react31.mjs && node scripts/apply-coread-ui-fixes.mjs && node scripts/fix-cover-category.mjs && vite build",
     "mcp": "node mcp-stdio.mjs",
     "mcp:sse": "node mcp-sse.mjs"
   },
