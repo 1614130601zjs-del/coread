@@ -11,12 +11,12 @@ initDb(DB_PATH);
 
 const sessions = new Map();
 
-function handleJsonRpc(msg) {
+async function handleJsonRpc(msg) {
   if (msg.method === 'initialize') {
     return { jsonrpc: '2.0', id: msg.id, result: {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'coread', version: '0.1.0' },
+      serverInfo: { name: 'coread', version: '0.3.0' },
     }};
   } else if (msg.method === 'notifications/initialized') {
     return null;
@@ -25,7 +25,7 @@ function handleJsonRpc(msg) {
   } else if (msg.method === 'tools/call') {
     const { name, arguments: args } = msg.params;
     try {
-      const result = handleTool(name, args || {});
+      const result = await handleTool(name, args || {});
       return { jsonrpc: '2.0', id: msg.id, result: {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
       }};
@@ -86,10 +86,10 @@ const server = http.createServer((req, res) => {
 
     let body = '';
     req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const msg = JSON.parse(body);
-        const response = handleJsonRpc(msg);
+        const response = await handleJsonRpc(msg);
         res.writeHead(202);
         res.end();
         if (response) {
@@ -107,10 +107,10 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/mcp') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const msg = JSON.parse(body);
-        const response = handleJsonRpc(msg);
+        const response = await handleJsonRpc(msg);
         if (response) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(response));
@@ -130,10 +130,9 @@ const server = http.createServer((req, res) => {
   res.end('Not found');
 });
 
-//  修改的地方：添加了 '0.0.0.0' 作为第二个参数，监听所有网络接口
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n   coread MCP server (SSE + Streamable HTTP)`);
-  console.log(`   SSE:              http://localhost:${PORT}/sse`);
-  console.log(`   Streamable HTTP:  http://localhost:${PORT}/mcp`);
-  console.log(`   Database: ${DB_PATH}\n`);
+server.listen(PORT, () => {
+  console.log(`\n  📚 coread MCP server (SSE + Streamable HTTP)`);
+  console.log(`  🔗 SSE:              http://localhost:${PORT}/sse`);
+  console.log(`  🔗 Streamable HTTP:  http://localhost:${PORT}/mcp`);
+  console.log(`  📂 Database: ${DB_PATH}\n`);
 });

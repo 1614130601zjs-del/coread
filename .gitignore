@@ -1,6 +1,15 @@
 node_modules/
+public/
 data/
-public/assets/*.map
-shen.db
+backups/
+*.db
 *.db-shm
 *.db-wal
+.env
+.env.*
+!.env.example
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+

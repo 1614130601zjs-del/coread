@@ -1,12 +1,9 @@
 const BASE_PATH = ((import.meta as any).env?.BASE_URL || '/').replace(/\/$/, '');
 export const API_BASE = `${window.location.origin}${BASE_PATH}`;
 
-// 共读室关门锁 owner key（与 app 端同 key，锁定期彤宝的 web 端照常放行）
-const ROOM_OWNER_KEY = 'xk-room-owner-f47ac10b58d2e619a3c4';
-
 async function request(path: string, opts?: RequestInit) {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', 'x-owner-key': ROOM_OWNER_KEY },
+    headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     ...opts,
   });
@@ -35,6 +32,7 @@ export const api = {
   logout: () => request('/v1/auth/logout', { method: 'POST' }),
   fetchBooks: (includeDeleted = false) => request(`/v1/books${includeDeleted ? '?deleted=1' : ''}`),
   fetchBookDetail: (bookId: number, page = 1) =>
+    // 统一坐标制：服务端固定分页（BOOK_PER_PAGE），不再传 per_page
     request(`/v1/books/${bookId}?page=${page}`),
   fetchBookSlice: (bookId: number, start = 0, count = 30, includeComments = true) =>
     request(`/v1/books/${bookId}/slice?start=${start}&count=${count}&include_comments=${includeComments ? '1' : '0'}`),
@@ -138,30 +136,11 @@ export const api = {
   fetchBookToc: (bookId: number) =>
     request(`/v1/books/${bookId}/toc`),
   exportBook: async (bookId: number, format = 'epub') => {
-    const res = await fetch(`${API_BASE}/v1/books/${bookId}/export?format=${format}`, { credentials: 'include', headers: { 'x-owner-key': ROOM_OWNER_KEY } });
+    const res = await fetch(`${API_BASE}/v1/books/${bookId}/export?format=${format}`, { credentials: 'include' });
     if (!res.ok) throw new Error('Export failed');
     return res.blob();
   },
   imageUrl: (bookId: number, filename: string) =>
     `${API_BASE}/v1/book-images/${bookId}/${filename}`,
-  deleteLibraryOption: (type: 'category' | 'tag', value: string) =>
-    request('/v1/library/options', { method: 'DELETE', body: JSON.stringify({ type, value }) }),
-  uploadCover: (bookId: number, file: File) => {
-    const formData = new FormData();
-    formData.append('cover', file);
-    return fetch(`${API_BASE}/v1/books/${bookId}/cover`, {
-      method: 'POST',
-      headers: { 'x-owner-key': ROOM_OWNER_KEY },
-      body: formData,
-      credentials: 'include',
-    }).then(async res => {
-      if (!res.ok) {
-        let data: any = null;
-        try { data = await res.json(); } catch {}
-        throw Object.assign(new Error(data?.error || `${res.status} ${res.statusText}`), { status: res.status, data });
-      }
-      return res.json();
-    });
-  },
   wishlistUrl: () => `${API_BASE}/v1/reading-wishlist`,
 };

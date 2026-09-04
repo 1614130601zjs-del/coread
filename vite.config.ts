@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  base: process.env.COREAD_BASE_PATH || '/',
   plugins: [react()],
   root: 'web',
   build: {
@@ -10,9 +11,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/v1': 'http://localhost:3001',
+      '/v1': 'http://localhost:3000',
     },
-    historyApiFallback: true,   // ← 加上这一行
   },
 });
-

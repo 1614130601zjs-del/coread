@@ -27,16 +27,16 @@ process.stdin.on('data', chunk => {
     if (buffer.length < bodyStart + len) break;
     const body = buffer.slice(bodyStart, bodyStart + len);
     buffer = buffer.slice(bodyStart + len);
-    try { handleMessage(JSON.parse(body)); } catch {}
+    try { void handleMessage(JSON.parse(body)); } catch {}
   }
 });
 
-function handleMessage(msg) {
+async function handleMessage(msg) {
   if (msg.method === 'initialize') {
     send({ jsonrpc: '2.0', id: msg.id, result: {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'coread', version: '0.1.0' },
+      serverInfo: { name: 'coread', version: '0.3.0' },
     }});
   } else if (msg.method === 'notifications/initialized') {
     // no-op
@@ -45,7 +45,7 @@ function handleMessage(msg) {
   } else if (msg.method === 'tools/call') {
     const { name, arguments: args } = msg.params;
     try {
-      const result = handleTool(name, args || {});
+      const result = await handleTool(name, args || {});
       send({ jsonrpc: '2.0', id: msg.id, result: {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
       }});
