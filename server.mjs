@@ -10,7 +10,8 @@ import { createAuthSessionStore } from './lib/auth-sessions.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.COREAD_PORT || '3000');
-const HOST = process.env.COREAD_HOST || '127.0.0.1';
+// Render web services must bind on the public interface. Keep an env override for local use.
+const HOST = process.env.COREAD_HOST || '0.0.0.0';
 const DB_PATH = process.env.COREAD_DB || path.join(process.cwd(), 'data', 'coread.db');
 
 // Optional comment notifier: run an arbitrary command whenever someone comments.
