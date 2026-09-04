@@ -8,32 +8,46 @@ const routesPath = 'lib/routes.mjs';
 let routes = fs.readFileSync(routesPath, 'utf8');
 let changed = false;
 
-// Remove the synthetic default tags from the UI and API fallback.
-const oldTagState = "const [libraryTags, setLibraryTags] = useState<string[]>(['森', '林', '木', '没看完']);";
-if (s.includes(oldTagState)) {
-  s = s.replace(oldTagState, "const [libraryTags, setLibraryTags] = useState<string[]>([]);");
+// Remove the synthetic default tags from the UI and API fallback. Match any
+// legacy generated variant so a later UI patch cannot resurrect them.
+const tagStateRe = /const \[libraryTags, setLibraryTags\] = useState<string\[\]>\(\[[^\]]*\]\);/;
+if (tagStateRe.test(s)) {
+  s = s.replace(tagStateRe, "const [libraryTags, setLibraryTags] = useState<string[]>([]);");
   changed = true;
 }
-const oldTagFallback = "safeJson(tags?.value, ['森', '林', '木', '没看完'])";
-if (routes.includes(oldTagFallback)) {
-  routes = routes.replace(oldTagFallback, 'safeJson(tags?.value, [])');
-  changed = true;
-}
-const oldPostDefaults = " : ['森', '林', '木', '没看完'];";
-if (routes.includes(oldPostDefaults)) {
-  routes = routes.replace(oldPostDefaults, ' : [];');
-  changed = true;
-}
+s = s.replace("safeJson(tags?.value, ['没看完'])", 'safeJson(tags?.value, [])');
+s = s.replace("safeJson(tags?.value, ['森', '林', '木', '没看完'])", 'safeJson(tags?.value, [])');
+routes = routes.replace("safeJson(tags?.value, ['没看完'])", 'safeJson(tags?.value, [])');
+routes = routes.replace("safeJson(tags?.value, ['森', '林', '木', '没看完'])", 'safeJson(tags?.value, [])');
+routes = routes.replace(" : ['没看完'];", ' : [];');
+routes = routes.replace(" : ['森', '林', '木', '没看完'];", ' : [];');
 
-// Remove the four legacy tags from an existing config row on the first GET.
+// Remove the four legacy tags from the library-options GET response and from
+// the persisted config. IMPORTANT: target this route specifically; an earlier
+// patch accidentally matched the unrelated /v1/books GET and returned
+// `tagList` from the wrong scope, causing `tagList is not defined` at runtime.
 if (!routes.includes("const legacyDefaultTags = new Set(['森', '林', '木', '没看完']);")) {
-  const marker = "  // GET /v1/library/options\n";
-  if (!routes.includes(marker)) throw new Error('library options GET anchor not found');
-  routes = routes.replace(marker, marker + "  const legacyDefaultTags = new Set(['森', '林', '木', '没看完']);\n");
-  const readMarker = "    const tags = db.prepare('SELECT value FROM config WHERE key = ?').get('tags');\n    db.close();";
-  if (!routes.includes(readMarker)) throw new Error('library options DB read anchor not found');
-  routes = routes.replace(readMarker, "    const tags = db.prepare('SELECT value FROM config WHERE key = ?').get('tags');\n    let tagList = safeJson(tags?.value, []);\n    if (Array.isArray(tagList)) tagList = tagList.filter(tag => !legacyDefaultTags.has(String(tag)));\n    if (Array.isArray(tagList) && tags?.value !== JSON.stringify(tagList)) db.prepare('INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('tags', JSON.stringify(tagList));\n    db.close();");
-  routes = routes.replace("      tags: safeJson(tags?.value, []),", "      tags: tagList,");
+  const routeStart = "  // GET /v1/library/options\n  if (req.method === 'GET' && req.url === '/v1/library/options') {";
+  const routeEnd = "  // POST /v1/library/options\n";
+  const start = routes.indexOf(routeStart);
+  const end = routes.indexOf(routeEnd, start);
+  if (start === -1 || end === -1) throw new Error('library options GET route anchors not found');
+
+  const route = routes.slice(start, end);
+  const nextRoute = route
+    .replace(
+      "  if (req.method === 'GET' && req.url === '/v1/library/options') {",
+      "  if (req.method === 'GET' && req.url === '/v1/library/options') {\n    const legacyDefaultTags = new Set(['森', '林', '木', '没看完']);",
+    )
+    .replace(
+      "    const tags = db.prepare('SELECT value FROM config WHERE key = ?').get('tags');\n    db.close();",
+      "    const tags = db.prepare('SELECT value FROM config WHERE key = ?').get('tags');\n    let tagList = safeJson(tags?.value, []);\n    if (Array.isArray(tagList)) tagList = tagList.filter(tag => !legacyDefaultTags.has(String(tag)));\n    if (Array.isArray(tagList) && tags?.value !== JSON.stringify(tagList)) {\n      db.prepare('INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('tags', JSON.stringify(tagList));\n    }\n    db.close();",
+    )
+    .replace("      tags: safeJson(tags?.value, []),", "      tags: tagList,")
+    .replace("      tags: safeJson(tags?.value, ['没看完']),", "      tags: tagList,")
+    .replace("      tags: safeJson(tags?.value, ['森', '林', '木', '没看完']),", "      tags: tagList,");
+
+  routes = routes.slice(0, start) + nextRoute + routes.slice(end);
   changed = true;
 }
 
@@ -55,34 +69,7 @@ if (!api.includes('uploadCover:')) {
 if (!routes.includes("const coverMatch = req.url?.match(/^\\/v1\\/books\\/(\\d+)\\/cover$/);")) {
   const marker = "  // GET /v1/book-images/:bookId/:filename\n";
   if (!routes.includes(marker)) throw new Error('book image route anchor not found');
-  const handler = `  // POST /v1/books/:bookId/cover
-  const coverMatch = req.url?.match(/^\\/v1\\/books\\/(\\d+)\\/cover$/);
-  if (req.method === 'POST' && coverMatch) {
-    try {
-      const bookId = Number(coverMatch[1]);
-      const body = await readBody(req);
-      const mime = String(body.mime || 'image/jpeg').toLowerCase();
-      if (!/^image\\/(jpeg|jpg|png|webp|gif)$/.test(mime)) { json(res, 400, { error: 'unsupported cover image type' }); return true; }
-      const raw = String(body.data || '');
-      const base64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw;
-      const data = Buffer.from(base64, 'base64');
-      if (!data.length || data.length > 12 * 1024 * 1024) { json(res, 400, { error: 'cover image must be between 1 byte and 12MB' }); return true; }
-      const db = getDb();
-      const book = db.prepare('SELECT id FROM books WHERE id=? AND deleted_at IS NULL').get(bookId);
-      if (!book) { db.close(); json(res, 404, { error: 'book not found' }); return true; }
-      const ext = mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : mime === 'image/gif' ? '.gif' : '.jpg';
-      const filename = 'cover-' + crypto.randomBytes(8).toString('hex') + ext;
-      const dir = getImageDir(bookId);
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, filename), data);
-      db.prepare('UPDATE books SET cover_image=? WHERE id=?').run(filename, bookId);
-      db.close();
-      json(res, 200, { ok: true, filename });
-    } catch (e) { json(res, 500, { error: e.message }); }
-    return true;
-  }
-
-`;
+  const handler = `  // POST /v1/books/:id/cover\n  const coverMatch = req.url?.match(/^\\/v1\\/books\\/(\\d+)\\/cover$/);\n  if (req.method === 'POST' && coverMatch) {\n    try {\n      const bookId = Number(coverMatch[1]);\n      const body = await readBody(req);\n      const mime = String(body.mime || 'image/jpeg').toLowerCase();\n      if (!/^image\\/(jpeg|jpg|png|webp|gif)$/.test(mime)) { json(res, 400, { error: 'unsupported cover image type' }); return true; }\n      const raw = String(body.data || '');\n      const base64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw;\n      const data = Buffer.from(base64, 'base64');\n      if (!data.length || data.length > 12 * 1024 * 1024) { json(res, 400, { error: 'cover image must be between 1 byte and 12MB' }); return true; }\n      const db = getDb();\n      const book = db.prepare('SELECT id FROM books WHERE id=? AND deleted_at IS NULL').get(bookId);\n      if (!book) { db.close(); json(res, 404, { error: 'book not found' }); return true; }\n      const ext = mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : mime === 'image/gif' ? '.gif' : '.jpg';\n      const filename = 'cover-' + crypto.randomBytes(8).toString('hex') + ext;\n      const dir = getImageDir(bookId);\n      fs.mkdirSync(dir, { recursive: true });\n      fs.writeFileSync(path.join(dir, filename), data);\n      db.prepare('UPDATE books SET cover_image=? WHERE id=?').run(filename, bookId);\n      db.close();\n      json(res, 200, { ok: true, filename });\n    } catch (e) { json(res, 500, { error: e.message }); }\n    return true;\n  }\n\n`;
   routes = routes.replace(marker, handler + marker);
   changed = true;
 }
@@ -133,13 +120,6 @@ const oldCover = `                                                    {book.cove
 if (s.includes(oldCover)) {
   const newCover = `                                                    {book.cover_image ? (\n                                                        <img src={api.imageUrl(book.id, book.cover_image)} alt=\"\" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />\n                                                    ) : (\n                                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', height: '100%', background: '#fff' }}>\n                                                            <div style={{ fontSize: 11, color: '#888' }}>暂无封面</div>\n                                                            <input id={\`coread-cover-file-\${book.id}\`} type=\"file\" accept=\"image/jpeg,image/png,image/webp,image/gif\" style={{ display: 'none' }} onChange={e => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = async () => { try { await api.uploadCover(book.id, String(reader.result || ''), file.type); await loadBooks(showTrash); } catch (error) { window.alert(error instanceof Error ? error.message : '封面导入失败'); } }; reader.readAsDataURL(file); }} />\n                                                            <button type=\"button\" onClick={() => document.getElementById(\`coread-cover-file-\${book.id}\`)?.click()} style={{ padding: '6px 9px', border: '1px solid #111', background: '#fff', color: '#111', fontSize: 10, cursor: 'pointer' }}>导入封面</button>\n                                                        </div>\n                                                    )}`;
   s = s.replace(oldCover, newCover);
-  changed = true;
-}
-
-// Existing covers get a small replace action. Avoid adding a duplicate input if the no-cover branch already contains one.
-const imgNeedle = `                                                        <img src={api.imageUrl(book.id, book.cover_image)} alt=\"\" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />`;
-if (s.includes(imgNeedle) && !s.includes('更换封面')) {
-  s = s.replace(imgNeedle, imgNeedle + `\n                                                        <input id={\`coread-cover-file-existing-\${book.id}\`} type=\"file\" accept=\"image/jpeg,image/png,image/webp,image/gif\" style={{ display: 'none' }} onChange={e => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = async () => { try { await api.uploadCover(book.id, String(reader.result || ''), file.type); await loadBooks(showTrash); } catch (error) { window.alert(error instanceof Error ? error.message : '封面导入失败'); } }; reader.readAsDataURL(file); }} />\n                                                        <button type=\"button\" onClick={() => document.getElementById(\`coread-cover-file-existing-\${book.id}\`)?.click()} style={{ position: 'absolute', left: 7, bottom: 7, zIndex: 5, padding: '4px 6px', border: '1px solid #111', background: '#fff', color: '#111', fontSize: 9, cursor: 'pointer' }}>更换封面</button>`);
   changed = true;
 }
 
