@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "node scripts/fix-react31.mjs && node scripts/apply-coread-ui-fixes.mjs && node scripts/fix-cover-category.mjs && node scripts/fix-legacy-tags.mjs && node scripts/fix-cover-build-error.mjs && node scripts/fix-font-links.mjs && vite build",
     "mcp": "node mcp-stdio.mjs",
-    "mcp:sandbox": "node mcp-sse.mjs"
+    "mcp:sse": "node mcp-sse.mjs"
   },
   "keywords": ["mcp", "co-reading", "annotations", "ai"],
   "license": "MIT",
