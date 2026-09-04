@@ -10,14 +10,12 @@ const replaceOnce = (needle, replacement, label) => {
   changed = true;
 };
 
-// Remove the legacy alternating faux-cover palette. Real uploaded covers remain untouched.
 if (s.includes('const BOOK_COVERS = [')) {
   s = s.replace(/\nconst BOOK_COVERS = \[[\s\S]*?\n\];\n/, '\n');
   changed = true;
 }
 s = s.replace("style={{ background: BOOK_COVERS[i % BOOK_COVERS.length] }}", "style={{ background: '#fff' }}");
 
-// Global font state and persistence.
 replaceOnce(
   "    const [newOptionValue, setNewOptionValue] = useState('');",
   `    const [newOptionValue, setNewOptionValue] = useState('');
@@ -52,13 +50,11 @@ replaceOnce(
   'global font effect'
 );
 
-// Cover upload already exists in the canonical editor; do not inject another input.
-// This avoids depending on fragile JSX formatting while preserving the existing upload API.
+// The canonical editor already has working cover upload state/API. No duplicate JSX is injected.
 
-// Add category deletion beside the existing category selector.
 if (!s.includes('删除分类')) {
   const alt = `                        <select value={editBookCategory} onChange={e => setEditBookCategory(e.target.value)}
-                            style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', border: \`1px solid ${c.primaryBorder}\`, borderRadius: 8, fontSize: 13, marginBottom: 14, background: '#fff' }}>
+                            style={{ width: '100%', boxSizing: 'border-box', padding: '9px 10px', border: \`1px solid \${c.primaryBorder}\`, borderRadius: 8, fontSize: 13, marginBottom: 14, background: '#fff' }}>
                             {libraryCategories.map(category => <option key={category} value={category}>{category}</option>)}
                         </select>`;
   if (!s.includes(alt)) throw new Error('UI patch anchor not found: category selector');
@@ -80,23 +76,22 @@ if (!s.includes('删除分类')) {
   changed = true;
 }
 
-// Global font controls in the existing 主题 / 背景 panel.
 if (!s.includes('全局字体')) {
   const heading = `                                <div style={{ fontSize: 13, fontWeight: 700, color: readerText, marginBottom: 10 }}>背景与主题</div>`;
   if (!s.includes(heading)) throw new Error('UI patch anchor not found: appearance panel');
   const fontPanel = `${heading}
-                                <div style={{ padding: '10px', marginBottom: 14, border: \`1px solid ${readerBorder}\`, borderRadius: 8, background: readerSurface }}>
+                                <div style={{ padding: '10px', marginBottom: 14, border: \`1px solid \${readerBorder}\`, borderRadius: 8, background: readerSurface }}>
                                     <div style={{ fontSize: 12, fontWeight: 700, color: readerText, marginBottom: 7 }}>全局字体</div>
                                     <div style={{ fontSize: 10, color: readerMuted, marginBottom: 8 }}>支持字体文件、字体文件直链或 CSS 字体 URL。CSS URL 需要填写 CSS 中的 font-family。</div>
                                     <div style={{ display: 'flex', gap: 7, marginBottom: 7 }}>
-                                        <input value={globalFontUrl} onChange={e => setGlobalFontUrl(e.target.value)} placeholder="字体文件 / CSS 链接（https://…）" style={{ flex: 1, minWidth: 0, padding: '7px 8px', border: \`1px solid ${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerText, fontSize: 11 }} />
-                                        <button type="button" onClick={() => { const url = globalFontUrl.trim(); if (!/^https?:\\/\\//i.test(url)) { window.alert('请输入 http/https 字体或 CSS 直链'); return; } const isCss = /\\.css(?:[?#].*)?$/i.test(url); const family = globalFontFamily.trim() || 'CoreadGlobalFont'; const payload = JSON.stringify({ src: url, kind: isCss ? 'css' : 'font', family, format: 'truetype' }); setGlobalFont(payload); localStorage.setItem('coread-global-font', payload); }} style={{ padding: '7px 9px', border: \`1px solid ${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerText, fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}>使用链接</button>
+                                        <input value={globalFontUrl} onChange={e => setGlobalFontUrl(e.target.value)} placeholder="字体文件 / CSS 链接（https://…）" style={{ flex: 1, minWidth: 0, padding: '7px 8px', border: \`1px solid \${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerText, fontSize: 11 }} />
+                                        <button type="button" onClick={() => { const url = globalFontUrl.trim(); if (!/^https?:\\/\\//i.test(url)) { window.alert('请输入 http/https 字体或 CSS 直链'); return; } const isCss = /\\.css(?:[?#].*)?$/i.test(url); const family = globalFontFamily.trim() || 'CoreadGlobalFont'; const payload = JSON.stringify({ src: url, kind: isCss ? 'css' : 'font', family, format: 'truetype' }); setGlobalFont(payload); localStorage.setItem('coread-global-font', payload); }} style={{ padding: '7px 9px', border: \`1px solid \${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerText, fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}>使用链接</button>
                                     </div>
-                                    <input value={globalFontFamily} onChange={e => setGlobalFontFamily(e.target.value)} placeholder="CSS 字体名（例如 Huiwen-mincho；字体文件可留空）" style={{ width: '100%', boxSizing: 'border-box', padding: '7px 8px', border: \`1px solid ${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerText, fontSize: 11, marginBottom: 7 }} />
+                                    <input value={globalFontFamily} onChange={e => setGlobalFontFamily(e.target.value)} placeholder="CSS 字体名（例如 Huiwen-mincho；字体文件可留空）" style={{ width: '100%', boxSizing: 'border-box', padding: '7px 8px', border: \`1px solid \${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerText, fontSize: 11, marginBottom: 7 }} />
                                     <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
                                         <input id="coread-global-font-file" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" style={{ display: 'none' }} onChange={e => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const src = String(reader.result || ''); const format = file.name.toLowerCase().endsWith('.woff2') ? 'woff2' : file.name.toLowerCase().endsWith('.woff') ? 'woff' : file.name.toLowerCase().endsWith('.otf') ? 'opentype' : 'truetype'; const payload = JSON.stringify({ src, kind: 'font', family: globalFontFamily.trim() || 'CoreadGlobalFont', format }); setGlobalFont(payload); localStorage.setItem('coread-global-font', payload); }; reader.readAsDataURL(file); }} />
-                                        <button type="button" onClick={() => document.getElementById('coread-global-font-file')?.click()} style={{ padding: '7px 9px', border: \`1px solid ${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerText, fontSize: 11, cursor: 'pointer' }}>上传字体文件</button>
-                                        {globalFont && <button type="button" onClick={() => { setGlobalFont(''); setGlobalFontUrl(''); setGlobalFontFamily(''); localStorage.removeItem('coread-global-font'); }} style={{ padding: '7px 9px', border: \`1px solid ${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerMuted, fontSize: 11, cursor: 'pointer' }}>恢复默认</button>}
+                                        <button type="button" onClick={() => document.getElementById('coread-global-font-file')?.click()} style={{ padding: '7px 9px', border: \`1px solid \${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerText, fontSize: 11, cursor: 'pointer' }}>上传字体文件</button>
+                                        {globalFont && <button type="button" onClick={() => { setGlobalFont(''); setGlobalFontUrl(''); setGlobalFontFamily(''); localStorage.removeItem('coread-global-font'); }} style={{ padding: '7px 9px', border: \`1px solid \${readerBorder}\`, borderRadius: 6, background: readerSurface, color: readerMuted, fontSize: 11, cursor: 'pointer' }}>恢复默认</button>}
                                     </div>
                                 </div>`;
   s = s.replace(heading, fontPanel);
