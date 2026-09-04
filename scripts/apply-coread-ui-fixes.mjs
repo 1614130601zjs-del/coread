@@ -38,19 +38,18 @@ replaceOnce(
         if (!globalFont) { style.textContent = ''; return; }
         try {
             const data = JSON.parse(globalFont);
-            const family = String(data.family || 'CoreadGlobalFont').replace(/["\\]/g, '');
-            const source = String(data.src || '').replace(/["\\]/g, '');
+            const family = String(data.family || 'CoreadGlobalFont').replace(/"/g, '');
+            const source = String(data.src || '').replace(/"/g, '');
             if (data.kind === 'css') {
                 style.textContent = '@import url("' + source + '"); .xiaowo-study,.xiaowo-study *{font-family:"' + family + '",sans-serif !important;}';
             } else {
-                style.textContent = '@font-face{font-family:"' + family + '";src:url("' + source + '") format("' + String(data.format || 'truetype').replace(/["\\]/g, '') + '");font-display:swap;} .xiaowo-study,.xiaowo-study *{font-family:"' + family + '",sans-serif !important;}';
+                const format = String(data.format || 'truetype').replace(/"/g, '');
+                style.textContent = '@font-face{font-family:"' + family + '";src:url("' + source + '") format("' + format + '");font-display:swap;} .xiaowo-study,.xiaowo-study *{font-family:"' + family + '",sans-serif !important;}';
             }
         } catch { style.textContent = ''; }
     }, [globalFont]);`,
   'global font effect'
 );
-
-// The canonical editor already has working cover upload state/API. No duplicate JSX is injected.
 
 if (!s.includes('删除分类')) {
   const alt = `                        <select value={editBookCategory} onChange={e => setEditBookCategory(e.target.value)}
