@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "vite",
-    "build": "node scripts/fix-react31.mjs && node scripts/apply-coread-ui-fixes.mjs && node scripts/fix-cover-category.mjs && node scripts/fix-legacy-tags.mjs && node scripts/fix-cover-build-error.mjs && node scripts/fix-font-links.mjs && vite build",
+    "build": "node scripts/fix-react31.mjs && node scripts/apply-coread-ui-fixes.mjs && node scripts/fix-cover-category.mjs && node scripts/fix-legacy-tags.mjs && node scripts/fix-cover-build-error.mjs && node scripts/fix-font-links.mjs && node scripts/fix-import-race.mjs && vite build",
     "mcp": "node mcp-stdio.mjs",
     "mcp:sse": "node mcp-sse.mjs"
   },
@@ -21,6 +21,7 @@
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
     "@vitejs/plugin-react": "^4.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
