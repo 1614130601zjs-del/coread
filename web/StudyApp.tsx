@@ -1173,6 +1173,34 @@ const StudyApp: React.FC = () => {
     const [humanName, setHumanName] = useState(() => localStorage.getItem('coread-human-name') || 'human');
     const [aiName, setAiName] = useState(() => localStorage.getItem('coread-ai-name') || 'AI');
     const [showSettings, setShowSettings] = useState(false);
+    const [globalCss, setGlobalCss] = useState(() => localStorage.getItem('coread-global-css') || '');
+    const [globalCssDraft, setGlobalCssDraft] = useState(() => localStorage.getItem('coread-global-css') || '');
+    const [globalCssEnabled, setGlobalCssEnabled] = useState(() => localStorage.getItem('coread-global-css-enabled') !== 'false');
+    const applyGlobalCss = useCallback((css: string, enabled: boolean) => {
+        const id = 'coread-user-global-css';
+        let style = document.getElementById(id) as HTMLStyleElement | null;
+        if (!style) {
+            style = document.createElement('style');
+            style.id = id;
+            document.head.appendChild(style);
+        }
+        style.textContent = enabled ? css : '';
+    }, []);
+    useEffect(() => {
+        applyGlobalCss(globalCss, globalCssEnabled);
+    }, [globalCss, globalCssEnabled, applyGlobalCss]);
+    const saveGlobalCss = () => {
+        localStorage.setItem('coread-global-css', globalCssDraft);
+        localStorage.setItem('coread-global-css-enabled', globalCssEnabled ? 'true' : 'false');
+        setGlobalCss(globalCssDraft);
+        applyGlobalCss(globalCssDraft, globalCssEnabled);
+    };
+    const resetGlobalCss = () => {
+        setGlobalCssDraft('');
+        setGlobalCss('');
+        localStorage.removeItem('coread-global-css');
+        applyGlobalCss('', globalCssEnabled);
+    };
     const [showBackups, setShowBackups] = useState(false);
     const [backups, setBackups] = useState<BackupSummary[]>([]);
     const [backupsLoading, setBackupsLoading] = useState(false);
@@ -6074,6 +6102,34 @@ const StudyApp: React.FC = () => {
                                 style={{ flex: 1, accentColor: c.primary }} />
                             <span style={{ fontSize: 12, color: '#aaa' }}>大</span>
                             <span style={{ fontSize: 12, color: c.primary, fontWeight: 600, minWidth: 28, textAlign: 'center' }}>{readerLayout.fontSize}px</span>
+                        </div>
+                        <div style={{ marginBottom: 16, padding: '12px 12px 10px', border: `1px solid ${c.primaryBorder}`, borderRadius: 12, background: c.primaryBg }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                                <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: c.primaryDark }}>全局美化 CSS</span>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#777', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={globalCssEnabled} onChange={e => {
+                                        const enabled = e.target.checked;
+                                        setGlobalCssEnabled(enabled);
+                                        localStorage.setItem('coread-global-css-enabled', enabled ? 'true' : 'false');
+                                        applyGlobalCss(globalCss, enabled);
+                                    }} />
+                                    启用
+                                </label>
+                            </div>
+                            <div style={{ fontSize: 10, color: '#888', lineHeight: 1.5, marginBottom: 7 }}>
+                                这里的 CSS 会加载到整个 Coread 页面，并放在默认样式之后，适合统一修改背景、字体、卡片、按钮、阅读区和布局。
+                            </div>
+                            <textarea
+                                value={globalCssDraft}
+                                onChange={e => setGlobalCssDraft(e.target.value)}
+                                placeholder={`:root { --coread-accent: #8b5e83; }\n.xiaowo-study { /* 你的全局美化 */ }`}
+                                spellCheck={false}
+                                style={{ width: '100%', minHeight: 150, boxSizing: 'border-box', padding: '9px 10px', border: `1px solid ${c.primaryBorder}`, borderRadius: 8, background: '#fff', color: '#222', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 11, lineHeight: 1.55, resize: 'vertical', outline: 'none' }}
+                            />
+                            <div style={{ display: 'flex', gap: 7, marginTop: 8 }}>
+                                <button onClick={saveGlobalCss} style={{ flex: 1, padding: '8px 0', border: 'none', borderRadius: 8, background: c.primary, color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>保存并应用</button>
+                                <button onClick={resetGlobalCss} style={{ padding: '8px 10px', border: `1px solid ${c.primaryBorder}`, borderRadius: 8, background: '#fff', color: c.primaryDark, cursor: 'pointer', fontSize: 11 }}>清空</button>
+                            </div>
                         </div>
                         <button onClick={openBackups}
                             style={{ width: '100%', display: 'flex', alignItems: 'center', textAlign: 'left', gap: 10, padding: '10px 12px', marginBottom: 16, borderRadius: 10, border: `1px solid ${c.primaryBorder}`, background: c.primaryBg, color: c.primaryDark, cursor: 'pointer' }}>
